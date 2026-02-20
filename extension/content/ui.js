@@ -72,23 +72,24 @@ function escapeHtml(s) {
   );
 }
 
-function positionTooltipNearCursor() {
+function positionTooltipBottomRight() {
   const t = ensureTooltip();
-  const pad = 12;
-  let left = lastMouse.x + 14;
-  let top  = lastMouse.y + 14;
-  const rect = t.getBoundingClientRect();
-  left = Math.max(pad, Math.min(left, window.innerWidth  - rect.width  - pad));
-  top  = Math.max(pad, Math.min(top,  window.innerHeight - rect.height - pad));
-  t.style.left = `${left}px`;
-  t.style.top  = `${top}px`;
+  const pad = 16;
+
+  Object.assign(t.style, {
+    position: "fixed",
+    right: `${pad}px`,
+    bottom: `${pad}px`,
+    left: "auto",
+    top: "auto",
+  });
 }
 
 function showTooltipHTML(html) {
   const t = ensureTooltip();
   t.querySelector("#lc-body").innerHTML = html;
   t.style.display = "block";
-  positionTooltipNearCursor();
+  positionTooltipBottomRight();
 }
 
 function hideTooltip() {
