@@ -5,7 +5,7 @@ This file maintains running context for Claude across sessions. Update it after 
 ---
 
 ## Last Updated
-2026-02-20 — Backend fully deployed and tested. All 3 endpoints verified end-to-end with OCI GenAI.
+2026-02-20 — End-to-end working. Extension hits real backend via background service worker. Tooltip persists until error is fixed.
 
 ---
 
@@ -113,10 +113,29 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 - pm2 restart: `pm2 restart ai-companion` (run from anywhere on the instance)
 - pm2 deploy: `cd ~/rethink && git pull origin rethinkOCI && pm2 restart ai-companion`
 
+### Extension Current State (as of 2026-02-20 — LATEST)
+- `MOCK_MODE = false` — hitting real OCI backend at 64.181.214.188:3000
+- `background.js` service worker created — proxies all fetch() calls to bypass mixed-content block
+- `callAnalyzeAPI` sends correct `{ sessionId, subject, fullText, newContent }` body
+- Session management: `chrome.storage.local` used for sessionId and subject
+- `extractNewContent()` extracts last completed sentence as `newContent`
+- MutationObserver fixed — filters own tooltip/overlay mutations, no re-trigger loop
+- Tooltip and overlay pre-created before observer starts (prevents initial mutation re-trigger)
+- `activeError` state added — error tooltip persists while editing, only clears when backend returns `hasError: false`
+- `onTypingEvent()` no longer hides tooltip when error is active — shows "Re-checking…" hint instead
+- Text extraction: `.kix-appview-editor` — working
+- Icon: `pictures/rethinkLogoBrain.png` (manifest updated)
+- **VERIFIED WORKING:** "2 + 3 = 10" → error detected ✓
+- **MISSING:** popup.html/js (toggle, subject selector, Socratic chat UI)
+- **MISSING:** popup referenced in manifest.json `action.default_popup`
+
 ### Next Up — RESUME HERE in new chat
-- [ ] Wire extension to OCI endpoint (`http://64.181.214.188:3000`)
-- [ ] Integrate extension with real backend (replace any mock calls)
-- [ ] End-to-end demo test: type in Google Docs → error detected → Socratic chat
+- [ ] Build `extension/popup/popup.html` + `popup.js`:
+  - Subject selector (Writing / Math / Science / Other) → saves to chrome.storage.local
+  - On/Off toggle → saves enabled state to chrome.storage.local, content.js checks before firing
+  - Chat window: input → POST /chat via background.js → displays Socratic reply
+- [ ] Add `"default_popup": "popup/popup.html"` to manifest.json action field
+- [ ] End-to-end demo: error detected → open popup → Socratic chat confirms fix
 
 ---
 

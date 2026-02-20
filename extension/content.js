@@ -15,7 +15,7 @@ const PAUSE_MS = 1800;
 const MIN_CHARS = 60;
 const WINDOW_CHARS = 1200;
 const COOLDOWN_MS = 8000;
-const MOCK_MODE = true;
+const MOCK_MODE = false;
 
 // Overlay + tooltip toggles
 const SHOW_OVERLAY = true;  // set false once stable
@@ -29,6 +29,7 @@ let overlay = null;
 let debounceTimer = null;
 let lastSentAt = 0;
 let lastSentText = "";
+let activeError = null; // location string when error is active, null when clean
 
 // Track mouse so tooltip can appear near cursor
 document.addEventListener(
@@ -83,11 +84,12 @@ function ensureOverlay() {
   return box;
 }
 
-function updateOverlay(text, meta = "") {
+function updateOverlay(text, meta = "", newContent = null) {
   const box = ensureOverlay();
   if (!box) return;
   const preview = (text || "").slice(-OVERLAY_CHARS);
-  box.textContent = `[LC overlay] ${meta}\n\n${preview || "(no text found yet)"}`;
+  const ncLine = newContent != null ? `\n\n── newContent (sent to API) ──\n${newContent}` : "";
+  box.textContent = `[LC overlay] ${meta}\n\n── fullText (last ${OVERLAY_CHARS} chars) ──\n${preview || "(no text found yet)"}${ncLine}`;
 }
 
 // ===================== UI: TOOLTIP =====================
@@ -242,13 +244,25 @@ function hideTooltip() {
 //   return { text: "", source: "none" };
 // }
 function extractDocsText() {
+  // .kix-paragraphrenderer elements contain only actual document paragraphs —
+  // no UI chrome, image captions, suggestion labels, or toolbar hints.
+  const paras = document.querySelectorAll(".kix-paragraphrenderer");
+  if (paras.length > 0) {
+    const text = Array.from(paras)
+      .map(p => (p.innerText || p.textContent || "").trim())
+      .filter(t => t.length > 0)
+      .join("\n");
+    if (text.length > 10) return { text, source: "kix_paragraphrenderer" };
+  }
+
+  // Fallback: broader editor root (includes some UI labels — less precise)
   const editorRoot = document.querySelector(".kix-appview-editor");
   if (editorRoot) {
     const text = (editorRoot.innerText || editorRoot.textContent || "").trim();
     return { text, source: "kix_editor_root" };
   }
 
-  // fallback
+  // Last resort
   const bodyText = (document.body?.innerText || "").trim();
   return { text: bodyText, source: "body_fallback" };
 }
@@ -285,122 +299,83 @@ function detectSubject(text) {
 
 function mapSubjectToContract(text) {
   const detected = detectSubject(text);
-
   if (detected === "math") return "math";
   if (detected === "writing") return "writing";
-
-  return "other"; // map "unknown" → "other"
+  return "other";
 }
 
-function isLikelyThesis(text) {
-  return text.toLowerCase().includes("should") ||
-         text.toLowerCase().includes("is better") ||
-         text.toLowerCase().includes("this paper") ||
-         text.toLowerCase().includes("argue");
-}
+// Extract the last completed sentence/line — this becomes newContent for the API.
+// A "completed" sentence ends with . ? ! or a newline.
+// We prefer the last completed chunk; fall back to the full tail if nothing qualifies.
+function extractNewContent(fullText) {
+  const text = (fullText || '').trim();
 
-async function callAnalyzeAPI(text) {
+  // Split on sentence-ending punctuation followed by whitespace, OR on blank lines
+  // Keep the delimiter attached to the chunk that precedes it so we see "sentence."
+  const chunks = text.split(/(?<=[.?!\n])\s+/).map(s => s.trim()).filter(s => s.length > 5);
 
-  if (MOCK_MODE) {
-    await new Promise(r => setTimeout(r, 500)); // simulate delay
-
-    const subject = mapSubjectToContract(text);
-
-    // ===== MATH MOCK =====
-    if (subject === "math") {
-      return {
-        why: "There may be a step in your equation that needs to be checked.",
-        hints: [
-          "Recheck how you moved terms across the equals sign.",
-          "Verify whether you applied the operation to both sides.",
-          "Check if any sign changed incorrectly during rearrangement."
-        ],
-        reflection_question: "What was your last transformation step, and is it mathematically valid?"
-      };
+  // Find the last chunk that actually ends with a sentence terminator (completed chunk)
+  for (let i = chunks.length - 1; i >= 0; i--) {
+    if (/[.?!\n]$/.test(chunks[i])) {
+      return chunks[i];
     }
-
-    // ===== WRITING MOCK =====
-    if (subject === "writing") {
-
-      if (isLikelyThesis(text)) {
-        return {
-          why: "Your opening claim may need clearer support or scope.",
-          hints: [
-            "Define what you mean by key terms in your claim.",
-            "Consider narrowing the claim to make it more specific.",
-            "Think about what evidence you will use to defend this."
-          ],
-          reflection_question: "How would someone disagree with this claim?"
-        };
-      }
-
-      return {
-        why: "This sentence may need stronger clarity or evidence.",
-        hints: [
-          "Clarify your main point in one precise sentence.",
-          "Add a concrete example or supporting detail.",
-          "Avoid overly broad statements like 'always' or 'proves.'"
-        ],
-        reflection_question: "What is the exact idea you want the reader to understand?"
-      };
-    }
-
-    // ===== FALLBACK =====
-    return {
-      why: "This section may benefit from review.",
-      hints: [
-        "Re-read your last sentence carefully.",
-        "Check for logical consistency.",
-        "Ask yourself what assumption you're making."
-      ],
-      reflection_question: "What step might a teacher question here?"
-    };
   }
 
-  // ===== REAL BACKEND CALL =====
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, url: location.href })
+  // Nothing ends with punctuation — user hasn't finished a sentence yet.
+  // Return the last chunk so the AI can still check partial work.
+  return chunks[chunks.length - 1] || text.slice(-300);
+}
+
+// Session management via chrome.storage.local
+async function getSessionId() {
+  return new Promise(resolve =>
+    chrome.storage.local.get('sessionId', r => resolve(r.sessionId || null))
+  );
+}
+
+async function saveSessionId(id) {
+  return new Promise(resolve => chrome.storage.local.set({ sessionId: id }, resolve));
+}
+
+async function getSubject() {
+  return new Promise(resolve =>
+    chrome.storage.local.get('subject', r => resolve(r.subject || null))
+  );
+}
+
+async function callAnalyzeAPI(fullText, newContent) {
+  if (MOCK_MODE) {
+    await new Promise(r => setTimeout(r, 500));
+    const subject = mapSubjectToContract(newContent);
+    if (subject === "math") {
+      return { sessionId: "mock-session-001", hasError: true, location: "In your most recent step." };
+    }
+    if (subject === "writing") {
+      return { sessionId: "mock-session-001", hasError: true, location: "In your most recent sentence." };
+    }
+    return { sessionId: "mock-session-001", hasError: false };
+  }
+
+  const sessionId = await getSessionId();
+  const storedSubject = await getSubject();
+  const subject = storedSubject || mapSubjectToContract(newContent);
+
+  // Route through background service worker to avoid mixed-content block
+  // (Google Docs is HTTPS; our backend is HTTP)
+  const response = await new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "ANALYZE", payload: { sessionId, subject, fullText, newContent } },
+      (res) => {
+        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+        if (!res.ok) return reject(new Error(res.error));
+        resolve(res.data);
+      }
+    );
   });
 
-  if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    throw new Error(`API error ${res.status}: ${msg}`);
-  }
-
-  return res.json();
+  if (response.sessionId) await saveSessionId(response.sessionId);
+  return response;
 }
-
-
-// ORIGINAL callAnalyzeAPI func!!
-// async function callAnalyzeAPI(text) {
-//     if (MOCK_MODE) {
-//         await new Promise(r => setTimeout(r, 500));
-
-//         return {
-//             why: "This sentence uses strong language but doesn't show evidence or define a metric.",
-//             hints: [
-//                 "Define what 'better"
-//             ]
-//         }
-//     };
-//   const res = await fetch(API_URL, {
-//     method: "POST",
-//     headers: { "Content-Type": "application/json" },
-//     body: JSON.stringify({
-//       text,
-//       url: location.href,
-//       // subject: "auto", // optionally add
-//       // sessionId: "..."  // optionally add
-//     })
-//   });
-//   if (!res.ok) {
-//     const msg = await res.text().catch(() => "");
-//     throw new Error(`API error ${res.status}: ${msg}`);
-//   }
-//   return res.json();
-// }
 
 // ===================== PAUSE TRIGGER =====================
 function scheduleAnalyze() {
@@ -409,72 +384,97 @@ function scheduleAnalyze() {
 }
 
 function onTypingEvent() {
-  // Hide tooltip while typing (feels natural)
-  hideTooltip();
+  // If an error is active, keep the tooltip visible with a subtle "re-checking" hint
+  // so the student knows the issue hasn't been cleared yet.
+  // Only hide when there's no active error (idle / looking good state).
+  if (activeError) {
+    showTooltipHTML(`
+      <div style="color:#b45309;font-weight:bold;">⚠️ Issue still present</div>
+      <div style="margin-top:8px;color:#555;font-size:12px;">Re-checking as you edit… pause to get an updated result.</div>
+    `);
+  } else {
+    hideTooltip();
+  }
   scheduleAnalyze();
 }
 
 async function analyzeNow() {
   const { text, source } = extractDocsText();
-  updateOverlay(text, `source=${source} | len=${text.length}`);
+  console.log(`[Rethink] analyzeNow fired | source=${source} | len=${text.length}`);
 
   const trimmed = (text || "").trim();
   if (trimmed.length < MIN_CHARS) {
-    // Show a gentle tooltip instead of doing nothing
+    console.log(`[Rethink] Too short (${trimmed.length} < ${MIN_CHARS}), skipping`);
     showTooltipHTML(`
-      <div><b>Learning Coach</b></div>
+      <div><b>Rethink</b></div>
       <div style="margin-top:8px;color:#555;">Keep going—pause again after you write a bit more.</div>
     `);
     return;
   }
 
-  const windowed = trimmed.slice(-WINDOW_CHARS);
+  const fullText = trimmed.slice(-WINDOW_CHARS);
+  const newContent = extractNewContent(fullText);
+  updateOverlay(fullText, `source=${source} | len=${text.length}`, newContent);
+  console.log(`[Rethink] newContent →`, newContent);
 
-  // Optional local flag (nice-to-have, not required)
-  const flag = localDetectFlag(windowed);
-
-  // Respect cooldown + duplicate suppression (but still show something)
+  // Cooldown + duplicate suppression
   const now = Date.now();
   const coolingDown = (now - lastSentAt < COOLDOWN_MS);
-  const duplicate = (windowed === lastSentText);
+  const duplicate = (newContent === lastSentText);
+  console.log(`[Rethink] coolingDown=${coolingDown} duplicate=${duplicate} activeError=${activeError}`);
 
-  // Always show something on pause (real-time feel)
-  showTooltipHTML(`
-    ${flag ? `<div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>` : `<div style="color:#2563eb;">✅ Analyzing…</div>`}
-    <div style="margin-top:8px;color:#555;">Generating hints (no full answers)…</div>
-  `);
-
-  // If we're cooling down or duplicate, don't call backend/mock again
   if (coolingDown || duplicate) {
-    showTooltipHTML(`
-      ${flag ? `<div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>` : `<div style="color:#2563eb;">✅ Ready</div>`}
-      <div style="margin-top:8px;color:#666;font-size:12px;">
-        ${coolingDown ? "Cooling down—pause again in a few seconds." : "No changes since last check."}
-      </div>
-    `);
+    // Re-show the active error during cooldown so it never disappears on the student
+    if (activeError) {
+      showTooltipHTML(`
+        <div style="color:#b45309;font-weight:bold;">⚠️ Potential issue found</div>
+        <div style="margin-top:10px;color:#333;"><b>Where to look:</b> ${escapeHtml(activeError)}</div>
+        <div style="margin-top:10px;font-size:12px;color:#666;">Open the Rethink popup to get a guided hint.</div>
+        <div style="margin-top:10px;font-size:12px;color:#666;">Keep editing and pause to re-check.</div>
+      `);
+    } else {
+      showTooltipHTML(`
+        <div style="color:#2563eb;">✅ Ready</div>
+        <div style="margin-top:8px;color:#666;font-size:12px;">
+          ${coolingDown ? "Cooling down—pause again in a few seconds." : "No changes since last check."}
+        </div>
+      `);
+    }
     return;
   }
 
+  // Only show "analyzing" flash when we're actually making an API call
+  showTooltipHTML(`
+    <div style="color:#2563eb;">🔍 Analyzing…</div>
+    <div style="margin-top:8px;color:#555;">Checking your work…</div>
+  `);
+
   lastSentAt = now;
-  lastSentText = windowed;
+  lastSentText = newContent;
 
   try {
-    const out = await callAnalyzeAPI(windowed);
+    console.log(`[Rethink] → POST /analyze | subject=${await getSubject() || mapSubjectToContract(newContent)}`);
+    const out = await callAnalyzeAPI(fullText, newContent);
+    console.log(`[Rethink] ← /analyze response:`, out);
 
-    const why = out.why || out.nudge || out.reason || "—";
-    const hints = (out.hints || []).slice(0, 3).map(h => `<li>${escapeHtml(h)}</li>`).join("");
-    const q = out.reflection_question || out.question || "—";
-
-    showTooltipHTML(`
-      ${flag ? `<div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>` : `<div style="color:#2563eb;">✅ Suggestions</div>`}
-      <div style="margin-top:10px;"><b>Why:</b> ${escapeHtml(why)}</div>
-      <div style="margin-top:10px;"><b>Hints:</b><ul style="margin:6px 0 0 18px;">${hints || "<li>—</li>"}</ul></div>
-      <div style="margin-top:10px;"><b>Question:</b> ${escapeHtml(q)}</div>
-      <div style="margin-top:10px;font-size:12px;color:#666;">Pause after edits to re-check.</div>
-    `);
+    if (out.hasError) {
+      activeError = out.location || "In your recent work.";
+      showTooltipHTML(`
+        <div style="color:#b45309;font-weight:bold;">⚠️ Potential issue found</div>
+        <div style="margin-top:10px;color:#333;"><b>Where to look:</b> ${escapeHtml(activeError)}</div>
+        <div style="margin-top:10px;font-size:12px;color:#666;">Open the Rethink popup to get a guided hint.</div>
+        <div style="margin-top:10px;font-size:12px;color:#666;">Keep editing and pause to re-check.</div>
+      `);
+    } else {
+      activeError = null;
+      showTooltipHTML(`
+        <div style="color:#16a34a;font-weight:bold;">✅ Looking good!</div>
+        <div style="margin-top:8px;color:#555;">No issues detected. Keep writing.</div>
+      `);
+    }
   } catch (e) {
     showTooltipHTML(`
-      <div style="color:#b45309;">⚠️ Coach error</div>
+      <div style="color:#b45309;">⚠️ Rethink error</div>
       <div style="margin-top:6px;color:#555;">${escapeHtml(e.message || String(e))}</div>
     `);
   }
@@ -494,17 +494,27 @@ document.addEventListener("keyup", (e) => {
   onTypingEvent();
 }, true);
 
-// Docs updates often show up as DOM mutations rather than input events
-const obs = new MutationObserver(() => {
+// Pre-create tooltip and overlay before the MutationObserver starts watching,
+// so their initial appendChild calls don't trigger scheduleAnalyze().
+if (SHOW_OVERLAY) ensureOverlay();
+ensureTooltip();
+
+// Docs updates often show up as DOM mutations rather than input events.
+// Filter out mutations caused by our own tooltip/overlay so they don't
+// re-trigger analysis and overwrite the result immediately.
+const obs = new MutationObserver((mutations) => {
   if (!isGoogleDocsDoc()) return;
-  // schedule analysis on any mutation (debounced)
+  const ours = mutations.every(m =>
+    (tooltip && (tooltip === m.target || tooltip.contains(m.target))) ||
+    (overlay && (overlay === m.target || overlay.contains(m.target)))
+  );
+  if (ours) return;
   scheduleAnalyze();
 });
 obs.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
 
-// Initial overlay
+// Update overlay with initial text (elements already created above)
 if (SHOW_OVERLAY) {
-  ensureOverlay();
   const { text, source } = extractDocsText();
   updateOverlay(text, `init source=${source} | len=${text.length}`);
 }

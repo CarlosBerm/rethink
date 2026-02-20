@@ -298,18 +298,62 @@ ai-learning-companion/
 - [x] Backend `POST /chat` — Socratic guidance confirmed, tested end-to-end
 - [x] IAM dynamic group + policy created for OCI GenAI instance principal auth
 - [x] Backend deployed via pm2, reachable at `http://64.181.214.188:3000`
+- [x] In-memory session store (Map) used instead of DB — functional, sufficient for demo
 
-### Chrome Extension (Engineer 2)
+### Chrome Extension (Engineer 2) — Current State as of 2026-02-20
 - [x] Extension scaffold created (Manifest V3)
-- [x] Pause-trigger tooltip working on generic text fields
-- [ ] Google Docs text extraction working reliably
-- [ ] Sentence/line completion trigger working
-- [ ] Toast notification UI appearing correctly
-- [ ] Extension popup UI complete (toggle + subject + chat)
-- [ ] Extension connected to real backend (`http://64.181.214.188:3000`)
+- [x] `manifest.json` updated: icons + toolbar icon = `pictures/rethinkLogoBrain.png`
+- [x] `manifest.json` `host_permissions` pointing to `http://64.181.214.188:3000/*`
+- [x] Google Docs text extraction working via `.kix-appview-editor` selector
+- [x] MutationObserver + keydown/keyup events trigger analysis
+- [x] Pause/debounce trigger (1800ms) — fires after user stops typing
+- [x] Debug overlay (bottom-right) showing extracted text
+- [x] Tooltip UI showing mock hints + reflection question
+- [x] Mock responses for math and writing subjects
+- [x] `BASE_URL` set to `http://64.181.214.188:3000` in code
+- [x] `ANALYZE_URL` and `CHAT_URL` constants defined
+- [x] `mapSubjectToContract()` helper added (maps detected subject to API contract values)
+- [x] `MOCK_MODE = false` — hitting real OCI backend
+- [x] `background.js` service worker — proxies fetch to bypass HTTPS→HTTP mixed-content block
+- [x] `callAnalyzeAPI` sends correct API contract body `{ sessionId, subject, fullText, newContent }`
+- [x] Session management via `chrome.storage.local` (sessionId + subject)
+- [x] MutationObserver fixed — filters own tooltip/overlay mutations, no re-trigger loop
+- [x] Tooltip/overlay pre-created before observer starts
+- [x] `activeError` state — error tooltip persists while editing, clears when backend confirms fix
+- [x] `onTypingEvent` shows "Re-checking…" instead of hiding tooltip when error is active
+- [x] **VERIFIED:** "2 + 3 = 10" correctly flagged as error end-to-end
+- [ ] **No popup UI** — no `popup.html`, `popup.js` files exist
+- [ ] **No chat UI** — `/chat` endpoint never called from extension
+- [ ] **No on/off toggle** — extension always active on Google Docs pages
+- [ ] **No subject selector** — subject auto-detected locally, not set by user
 
 ### Integration & Demo
-- [ ] End-to-end test: write mistake in Google Docs → notification appears
-- [ ] End-to-end test: Socratic chat flow working from extension
+- [x] End-to-end test: write mistake in Google Docs → notification appears from real backend ✓
+- [ ] End-to-end test: Socratic chat flow working from extension popup
 - [ ] Demo scenario 1 (math equation mistake) rehearsed
 - [ ] Demo scenario 2 (biology essay mistake) rehearsed
+
+---
+
+## What Needs to Be Built Next (Priority Order)
+
+### Priority 1 — Wire content.js to real backend (unblocks everything)
+Fix the `callAnalyzeAPI` function to:
+1. Load `sessionId` from `chrome.storage.local`
+2. Send `{ sessionId, subject, fullText, newContent }` matching the API contract
+3. Save the returned `sessionId` back to `chrome.storage.local`
+4. Set `MOCK_MODE = false`
+
+### Priority 2 — Popup UI (toggle + subject + chat)
+Create `extension/popup/popup.html` and `popup.js`:
+1. On/Off toggle (stores state in `chrome.storage.local`, content.js reads it before firing)
+2. Subject selector: Writing / Math / Science / Other (stores in `chrome.storage.local`)
+3. Chat window: input box → calls `POST /chat` with `sessionId` + message → displays reply
+
+### Priority 3 — Update manifest for popup + background
+Add to `manifest.json`:
+- `"action": { "default_popup": "popup/popup.html" }`
+- `"background": { "service_worker": "background.js" }` (if needed)
+
+### Priority 4 — Sentence-completion trigger (nice to have for demo)
+Replace pure pause/debounce with detection of `.`, `?`, `!`, or newline to trigger analysis more precisely. Current debounce approach works but is less precise.
