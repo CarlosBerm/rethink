@@ -287,8 +287,8 @@ ai-learning-companion/
 
 ## Project Status Tracker
 
-- [ ] Shared GitHub repo created
-- [ ] OCI Compute instance live and SSH accessible
+- [x] Shared GitHub repo created
+- [x] OCI Compute instance live and SSH accessible
 - [ ] Extension loads as unpacked extension in Chrome
 - [x] API contract locked in — see `api-contract.md`
 - [ ] Backend `/analyze` route working (mock)
