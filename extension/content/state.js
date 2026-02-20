@@ -15,7 +15,3 @@ let typedBuffer = "";
 
 // Export cache — avoids hammering the /export endpoint on every keystroke.
 let _exportCache = { text: "", ts: 0 };
-
-// Snapshot of fullText from the previous analyzeNow cycle.
-// Used by extractNewContent to diff which sentence changed.
-let lastFullText = "";

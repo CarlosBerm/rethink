@@ -30,7 +30,6 @@ The core principle: **never give the answer, always guide the thinking.**
 - **Socratic chat** — a built-in chat panel in the popup lets students ask questions; the AI responds with probing questions, not direct corrections
 - **Subject-aware** — the student selects Writing, Math, Science, or Other; prompts are tuned accordingly
 - **On/Off toggle** — students can disable the companion at any time
-- **Fixed pop-up** - anything that is flagged will be shown at the bottom right of the pop-up
 - **Works on all Google Docs** — using the `/export?format=txt` endpoint to read canvas-rendered text
 
 ---
