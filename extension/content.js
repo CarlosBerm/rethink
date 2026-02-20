@@ -13,6 +13,7 @@ const PAUSE_MS = 1800;
 const MIN_CHARS = 60;
 const WINDOW_CHARS = 1200;
 const COOLDOWN_MS = 8000;
+const MOCK_MODE = true;
 
 // Overlay + tooltip toggles
 const SHOW_OVERLAY = true;  // set false once stable
@@ -245,23 +246,125 @@ function localDetectFlag(text) {
 }
 
 // ===================== BACKEND CALL =====================
+
+function detectSubject(text) {
+  const mathPattern = /[=+\-*/^√∫Σπ]|(\d+\s*[+\-*/]\s*\d+)/;
+  const sentencePattern = /[a-zA-Z]{4,}\s+[a-zA-Z]{4,}/;
+
+  if (mathPattern.test(text)) return "math";
+  if (sentencePattern.test(text)) return "writing";
+  return "unknown";
+}
+
+function isLikelyThesis(text) {
+  return text.toLowerCase().includes("should") ||
+         text.toLowerCase().includes("is better") ||
+         text.toLowerCase().includes("this paper") ||
+         text.toLowerCase().includes("argue");
+}
+
 async function callAnalyzeAPI(text) {
+
+  if (MOCK_MODE) {
+    await new Promise(r => setTimeout(r, 500)); // simulate delay
+
+    const subject = detectSubject(text);
+
+    // ===== MATH MOCK =====
+    if (subject === "math") {
+      return {
+        why: "There may be a step in your equation that needs to be checked.",
+        hints: [
+          "Recheck how you moved terms across the equals sign.",
+          "Verify whether you applied the operation to both sides.",
+          "Check if any sign changed incorrectly during rearrangement."
+        ],
+        reflection_question: "What was your last transformation step, and is it mathematically valid?"
+      };
+    }
+
+    // ===== WRITING MOCK =====
+    if (subject === "writing") {
+
+      if (isLikelyThesis(text)) {
+        return {
+          why: "Your opening claim may need clearer support or scope.",
+          hints: [
+            "Define what you mean by key terms in your claim.",
+            "Consider narrowing the claim to make it more specific.",
+            "Think about what evidence you will use to defend this."
+          ],
+          reflection_question: "How would someone disagree with this claim?"
+        };
+      }
+
+      return {
+        why: "This sentence may need stronger clarity or evidence.",
+        hints: [
+          "Clarify your main point in one precise sentence.",
+          "Add a concrete example or supporting detail.",
+          "Avoid overly broad statements like 'always' or 'proves.'"
+        ],
+        reflection_question: "What is the exact idea you want the reader to understand?"
+      };
+    }
+
+    // ===== FALLBACK =====
+    return {
+      why: "This section may benefit from review.",
+      hints: [
+        "Re-read your last sentence carefully.",
+        "Check for logical consistency.",
+        "Ask yourself what assumption you're making."
+      ],
+      reflection_question: "What step might a teacher question here?"
+    };
+  }
+
+  // ===== REAL BACKEND CALL =====
   const res = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text,
-      url: location.href,
-      // subject: "auto", // optionally add
-      // sessionId: "..."  // optionally add
-    })
+    body: JSON.stringify({ text, url: location.href })
   });
+
   if (!res.ok) {
     const msg = await res.text().catch(() => "");
     throw new Error(`API error ${res.status}: ${msg}`);
   }
+
   return res.json();
 }
+
+
+// ORIGINAL callAnalyzeAPI func!!
+// async function callAnalyzeAPI(text) {
+//     if (MOCK_MODE) {
+//         await new Promise(r => setTimeout(r, 500));
+
+//         return {
+//             why: "This sentence uses strong language but doesn't show evidence or define a metric.",
+//             hints: [
+//                 "Define what 'better"
+//             ]
+//         }
+//     };
+//   const res = await fetch(API_URL, {
+//     method: "POST",
+//     headers: { "Content-Type": "application/json" },
+//     body: JSON.stringify({
+//       text,
+//       url: location.href,
+//       // subject: "auto", // optionally add
+//       // sessionId: "..."  // optionally add
+//     })
+//   });
+//   if (!res.ok) {
+//     const msg = await res.text().catch(() => "");
+//     throw new Error(`API error ${res.status}: ${msg}`);
+//   }
+//   return res.json();
+// }
 
 // ===================== PAUSE TRIGGER =====================
 function scheduleAnalyze() {
