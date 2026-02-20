@@ -51,7 +51,7 @@ async function analyzeNow() {
   const now         = Date.now();
   const coolingDown = now - lastSentAt < COOLDOWN_MS;
   const duplicate   = newContent === lastSentText;
-  console.log(`[Rethink] coolingDown=${coolingDown} duplicate=${duplicate} activeError=${activeError}`);
+  // console.log(`[Rethink] coolingDown=${coolingDown} duplicate=${duplicate} activeError=${activeError}`);
 
   if (coolingDown || duplicate) {
     if (activeError) {
