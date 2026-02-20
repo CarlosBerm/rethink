@@ -55,7 +55,7 @@ async function initOCI() {
 
 function toOciMessages(messages) {
   return messages.map(m => ({
-    role: m.role.toUpperCase(),
+    role: m.role === 'assistant' ? 'CHATBOT' : m.role.toUpperCase(),
     content: [{ type: 'TEXT', text: m.content }]
   }));
 }
@@ -108,14 +108,14 @@ You will receive:
 Respond ONLY with valid JSON — no other text, no markdown, no explanation.
 
 If an error exists in newContent:
-{"hasError": true, "internalError": "<detailed description of the actual error, for tutor use only>", "location": "<MUST follow this exact format: start with 'In your sentence about' or 'In your equation about' or 'In your step about', then add a 1–3 word topic. Examples: 'In your sentence about babies.', 'In your equation about velocity.', 'In your step about factoring.' NEVER describe what the error is — only name the topic.>"}
+{"hasError": true, "internalError": "<detailed description of the actual error, for tutor use only>", "location": "<vague location hint — e.g. 'In your most recent sentence.' or 'On the most recent step.' Never describe what the error is, only where to look.>"}
 
 If no error:
 {"hasError": false}
 
 Rules:
 - Only check newContent for errors; use fullText for context
-- The location string must identify the topic of the sentence/step (so the student knows which one) but must NEVER reveal WHAT the error is
+- The location string must NEVER hint at WHAT the error is — only WHERE
 - internalError must be detailed enough for a Socratic tutor to guide the student`;
 }
 
@@ -133,13 +133,12 @@ ${session.errorInternal}
 """
 
 Rules:
-1. NEVER directly state what the error is unprompted — the student must discover it themselves
-2. Guide only with questions — help the student find the error themselves
+1. NEVER directly state what the error is
+2. Guide only with questions — help the student discover the error themselves
 3. Start with broad questions; get more specific only if the student is stuck after multiple turns
 4. Be encouraging, patient, and supportive
-5. If the student correctly identifies the core nature of the error or states a correct fix — even approximately — confirm it enthusiastically and unambiguously with a phrase like "Exactly right!", "Yes, that's it!", or "You found it!", then briefly explain what they got right. STOP asking questions once they have identified the mistake. Do NOT say "you're getting closer" or "on the right track" when they are fully correct
-6. If the student asks you to just give them the answer (e.g. "just tell me", "what's wrong?", "I give up"), respond with encouragement and a slightly more specific guiding question — never reveal the answer directly
-7. Keep responses to 2–3 sentences`;
+5. If the student correctly identifies the error, warmly confirm they are on the right track
+6. Keep responses to 2–3 sentences`;
 }
 
 // ---- Routes ----

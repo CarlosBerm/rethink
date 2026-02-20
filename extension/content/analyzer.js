@@ -59,7 +59,6 @@ async function analyzeNow() {
       showTooltipHTML(`
         <div style="color:#b45309;font-weight:bold;">⚠️ Potential issue found</div>
         <div style="margin-top:10px;color:#333;"><b>Where to look:</b> ${escapeHtml(activeError)}</div>
-        <div style="margin-top:10px;font-size:12px;color:#666;">Open the Rethink popup for a guided hint.</div>
         <div style="margin-top:10px;font-size:12px;color:#666;">Keep editing and pause to re-check.</div>
       `);
     }
