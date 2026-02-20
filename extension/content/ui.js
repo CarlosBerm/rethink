@@ -4,39 +4,39 @@
 
 // ── Debug Overlay ──────────────────────────────────────────────────────────
 
-// function ensureOverlay() {
-//   if (!SHOW_OVERLAY) return null;
-//   let box = document.getElementById("lc-overlay");
-//   if (box) return box;
+function ensureOverlay() {
+  if (!SHOW_OVERLAY) return null;
+  let box = document.getElementById("lc-overlay");
+  if (box) return box;
 
-//   box = document.createElement("div");
-//   box.id = "lc-overlay";
-//   Object.assign(box.style, {
-//     position: "fixed", bottom: "12px", right: "12px", zIndex: "999999",
-//     width: "460px", maxHeight: "260px", overflow: "auto", padding: "10px",
-//     borderRadius: "12px", background: "rgba(17,17,17,0.92)", color: "white",
-//     fontSize: "12px",
-//     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-//     whiteSpace: "pre-wrap",
-//   });
-//   box.textContent = "[Rethink] Ready…";
-//   box.addEventListener("click", () => {
-//     box.style.maxHeight = box.style.maxHeight === "34px" ? "260px" : "34px";
-//   });
-//   document.documentElement.appendChild(box);
-//   overlay = box;
-//   return box;
-// }
+  box = document.createElement("div");
+  box.id = "lc-overlay";
+  Object.assign(box.style, {
+    position: "fixed", bottom: "12px", right: "12px", zIndex: "999999",
+    width: "460px", maxHeight: "260px", overflow: "auto", padding: "10px",
+    borderRadius: "12px", background: "rgba(17,17,17,0.92)", color: "white",
+    fontSize: "12px",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    whiteSpace: "pre-wrap",
+  });
+  box.textContent = "[Rethink] Ready…";
+  box.addEventListener("click", () => {
+    box.style.maxHeight = box.style.maxHeight === "34px" ? "260px" : "34px";
+  });
+  document.documentElement.appendChild(box);
+  overlay = box;
+  return box;
+}
 
-// function updateOverlay(fullText, newContent, source) {
-//   const box = ensureOverlay();
-//   if (!box) return;
-//   const preview = (fullText || "").slice(-600);
-//   box.textContent =
-//     `[Rethink] source=${source}\n\n` +
-//     `── fullText ──\n${preview || "(empty)"}\n\n` +
-//     `── newContent (sent to API) ──\n${newContent || "(empty)"}`;
-// }
+function updateOverlay(fullText, newContent, source) {
+  const box = ensureOverlay();
+  if (!box) return;
+  const preview = (fullText || "").slice(-600);
+  box.textContent =
+    `[Rethink] source=${source}\n\n` +
+    `── fullText ──\n${preview || "(empty)"}\n\n` +
+    `── newContent (sent to API) ──\n${newContent || "(empty)"}`;
+}
 
 // ── Tooltip ────────────────────────────────────────────────────────────────
 
@@ -72,24 +72,23 @@ function escapeHtml(s) {
   );
 }
 
-function positionTooltipBottomRight() {
+function positionTooltipNearCursor() {
   const t = ensureTooltip();
-  const pad = 16;
-
-  Object.assign(t.style, {
-    position: "fixed",
-    right: `${pad}px`,
-    bottom: `${pad}px`,
-    left: "auto",
-    top: "auto",
-  });
+  const pad = 12;
+  let left = lastMouse.x + 14;
+  let top  = lastMouse.y + 14;
+  const rect = t.getBoundingClientRect();
+  left = Math.max(pad, Math.min(left, window.innerWidth  - rect.width  - pad));
+  top  = Math.max(pad, Math.min(top,  window.innerHeight - rect.height - pad));
+  t.style.left = `${left}px`;
+  t.style.top  = `${top}px`;
 }
 
 function showTooltipHTML(html) {
   const t = ensureTooltip();
   t.querySelector("#lc-body").innerHTML = html;
   t.style.display = "block";
-  positionTooltipBottomRight();
+  positionTooltipNearCursor();
 }
 
 function hideTooltip() {
