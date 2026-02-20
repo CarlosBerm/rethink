@@ -170,62 +170,87 @@ function hideTooltip() {
 // ===================== EXTRACTION =====================
 // Try to locate primary editor/accessible node candidates.
 // Google Docs changes often; we try multiple patterns.
-function findEditableCandidates() {
-  const list = [];
+// function findEditableCandidates() {
+//   const list = [];
 
-  // Common role-based candidates
-  list.push(...document.querySelectorAll('[role="textbox"]'));
+//   // Common role-based candidates
+//   list.push(...document.querySelectorAll('[role="textbox"]'));
 
-  // Contenteditable candidates
-  list.push(...document.querySelectorAll('[contenteditable="true"]'));
+//   // Contenteditable candidates
+//   list.push(...document.querySelectorAll('[contenteditable="true"]'));
 
-  // Known containers (sometimes present)
-  const kix = document.querySelector(".kix-appview-editor");
-  if (kix) list.push(kix);
+//   // Known containers (sometimes present)
+//   const kix = document.querySelector(".kix-appview-editor");
+//   if (kix) list.push(kix);
 
-  // Deduplicate
-  return Array.from(new Set(list));
-}
+//   // Deduplicate
+//   return Array.from(new Set(list));
+// }
 
-// Pick the node with the most text (often the best accessible layer)
-function bestTextFromNodes(nodes) {
-  let best = { text: "", node: null };
-  for (const n of nodes) {
-    const text = ((n.innerText || n.textContent || "")).trim();
-    if (text.length > best.text.length) best = { text, node: n };
-  }
-  return best;
-}
+// // Pick the node with the most text (often the best accessible layer)
+// function bestTextFromNodes(nodes) {
+//   let best = { text: "", node: null };
+//   for (const n of nodes) {
+//     const text = ((n.innerText || n.textContent || "")).trim();
+//     if (text.length > best.text.length) best = { text, node: n };
+//   }
+//   return best;
+// }
 
-// Fallback: scan aria-label nodes and pick the best text source
-function bestTextFromAccessibleNodes() {
-  const nodes = Array.from(document.querySelectorAll("[aria-label],[aria-describedby]"));
-  return bestTextFromNodes(nodes);
-}
+// // Fallback: scan aria-label nodes and pick the best text source
+// function bestTextFromAccessibleNodes() {
+//   const nodes = Array.from(document.querySelectorAll("[aria-label],[aria-describedby]"));
+//   return bestTextFromNodes(nodes);
+// }
 
-// Main extraction
+// function extractDocsText() {
+//   const editorRoot = document.querySelector(".kix-appview-editor");
+
+//   if (editorRoot) {
+//     const text = (editorRoot.innerText || editorRoot.textContent || "").trim();
+//     return { text, source: "kix_editor_root" };
+//   }
+
+//   // fallback if selector fails (rare)
+//   const bodyText = (document.body?.innerText || "").trim();
+//   return { text: bodyText, source: "body_fallback" };
+// }
+
+//OLD VERSION Main extraction
+// function extractDocsText() {
+//   // 1) Try editable candidates
+//   const editable = findEditableCandidates();
+//   const bestEditable = bestTextFromNodes(editable);
+//   if (bestEditable.text.length > 80) {
+//     return { text: bestEditable.text, source: "editable_best" };
+//   }
+
+//   // 2) Try broader accessible nodes
+//   const bestA11y = bestTextFromAccessibleNodes();
+//   if (bestA11y.text.length > 80) {
+//     return { text: bestA11y.text, source: "a11y_best" };
+//   }
+
+//   // 3) Last-resort: whole body (noisy)
+//   const bodyText = (document.body?.innerText || "").trim();
+//   if (bodyText.length > 200) {
+//     return { text: bodyText, source: "body_fallback" };
+//   }
+
+//   return { text: "", source: "none" };
+// }
 function extractDocsText() {
-  // 1) Try editable candidates
-  const editable = findEditableCandidates();
-  const bestEditable = bestTextFromNodes(editable);
-  if (bestEditable.text.length > 80) {
-    return { text: bestEditable.text, source: "editable_best" };
+  const editorRoot = document.querySelector(".kix-appview-editor");
+  if (editorRoot) {
+    const text = (editorRoot.innerText || editorRoot.textContent || "").trim();
+    return { text, source: "kix_editor_root" };
   }
 
-  // 2) Try broader accessible nodes
-  const bestA11y = bestTextFromAccessibleNodes();
-  if (bestA11y.text.length > 80) {
-    return { text: bestA11y.text, source: "a11y_best" };
-  }
-
-  // 3) Last-resort: whole body (noisy)
+  // fallback
   const bodyText = (document.body?.innerText || "").trim();
-  if (bodyText.length > 200) {
-    return { text: bodyText, source: "body_fallback" };
-  }
-
-  return { text: "", source: "none" };
+  return { text: bodyText, source: "body_fallback" };
 }
+
 
 // ===================== DETECTION (cheap local) =====================
 function localDetectFlag(text) {
@@ -383,43 +408,54 @@ async function analyzeNow() {
   updateOverlay(text, `source=${source} | len=${text.length}`);
 
   const trimmed = (text || "").trim();
-  if (trimmed.length < MIN_CHARS) return;
-
-  const windowed = trimmed.slice(-WINDOW_CHARS);
-  const flag = localDetectFlag(windowed);
-  if (!flag) return; // no intervention if nothing notable
-
-  const now = Date.now();
-  if (now - lastSentAt < COOLDOWN_MS) {
-    // still show quick local flag to feel realtime
+  if (trimmed.length < MIN_CHARS) {
+    // Show a gentle tooltip instead of doing nothing
     showTooltipHTML(`
-      <div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>
-      <div style="margin-top:8px;color:#666;font-size:12px;">(Cooling down… pause again in a few seconds)</div>
+      <div><b>Learning Coach</b></div>
+      <div style="margin-top:8px;color:#555;">Keep going—pause again after you write a bit more.</div>
     `);
     return;
   }
-  if (windowed === lastSentText) return;
+
+  const windowed = trimmed.slice(-WINDOW_CHARS);
+
+  // Optional local flag (nice-to-have, not required)
+  const flag = localDetectFlag(windowed);
+
+  // Respect cooldown + duplicate suppression (but still show something)
+  const now = Date.now();
+  const coolingDown = (now - lastSentAt < COOLDOWN_MS);
+  const duplicate = (windowed === lastSentText);
+
+  // Always show something on pause (real-time feel)
+  showTooltipHTML(`
+    ${flag ? `<div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>` : `<div style="color:#2563eb;">✅ Analyzing…</div>`}
+    <div style="margin-top:8px;color:#555;">Generating hints (no full answers)…</div>
+  `);
+
+  // If we're cooling down or duplicate, don't call backend/mock again
+  if (coolingDown || duplicate) {
+    showTooltipHTML(`
+      ${flag ? `<div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>` : `<div style="color:#2563eb;">✅ Ready</div>`}
+      <div style="margin-top:8px;color:#666;font-size:12px;">
+        ${coolingDown ? "Cooling down—pause again in a few seconds." : "No changes since last check."}
+      </div>
+    `);
+    return;
+  }
 
   lastSentAt = now;
   lastSentText = windowed;
 
-  // Local immediate tooltip
-  showTooltipHTML(`
-    <div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>
-    <div style="margin-top:8px;color:#555;">Thinking of hints…</div>
-    <div style="margin-top:8px;font-size:12px;color:#666;">(Hints-only • no full answers)</div>
-  `);
-
   try {
     const out = await callAnalyzeAPI(windowed);
 
-    // Support both /analyze and /coach-style responses
     const why = out.why || out.nudge || out.reason || "—";
     const hints = (out.hints || []).slice(0, 3).map(h => `<li>${escapeHtml(h)}</li>`).join("");
     const q = out.reflection_question || out.question || "—";
 
     showTooltipHTML(`
-      <div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>
+      ${flag ? `<div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>` : `<div style="color:#2563eb;">✅ Suggestions</div>`}
       <div style="margin-top:10px;"><b>Why:</b> ${escapeHtml(why)}</div>
       <div style="margin-top:10px;"><b>Hints:</b><ul style="margin:6px 0 0 18px;">${hints || "<li>—</li>"}</ul></div>
       <div style="margin-top:10px;"><b>Question:</b> ${escapeHtml(q)}</div>
@@ -427,14 +463,11 @@ async function analyzeNow() {
     `);
   } catch (e) {
     showTooltipHTML(`
-      <div style="color:#b45309;">⚠️ ${escapeHtml(flag)}</div>
-      <div style="margin-top:10px;"><b>Backend error</b></div>
+      <div style="color:#b45309;">⚠️ Coach error</div>
       <div style="margin-top:6px;color:#555;">${escapeHtml(e.message || String(e))}</div>
-      <div style="margin-top:6px;color:#666;font-size:12px;">Check API_URL and that the server is running.</div>
     `);
   }
 }
-
 // ===================== EVENT HOOKS =====================
 // Google Docs typing is complex; "input" may not fire reliably.
 // We listen broadly: keydown + keyup + selectionchange, plus MutationObserver.
