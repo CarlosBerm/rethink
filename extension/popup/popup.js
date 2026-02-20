@@ -121,9 +121,8 @@ async function sendChat() {
         {
           type: "CHAT",
           payload: {
-            sessionId:   data.sessionId || null,
-            subject:     data.subject   || "other",
-            userMessage: text,
+            sessionId: data.sessionId || null,
+            message:   text,
           },
         },
         (res) => {
