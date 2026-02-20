@@ -4,12 +4,29 @@
   "version": "0.1",
   "description": "Real-time AI learning companion for Google Docs",
 
+  "icons": {
+    "16":  "pictures/rethinkLogoBrain.png",
+    "32":  "pictures/rethinkLogoBrain.png",
+    "48":  "pictures/rethinkLogoBrain.png",
+    "128": "pictures/rethinkLogoBrain.png"
+  },
+
+  "action": {
+    "default_icon": {
+      "16":  "pictures/rethinkLogoBrain.png",
+      "32":  "pictures/rethinkLogoBrain.png",
+      "48":  "pictures/rethinkLogoBrain.png",
+      "128": "pictures/rethinkLogoBrain.png"
+    },
+    "default_title": "Learning Coach"
+  },
+
   "permissions": [
     "storage"
   ],
 
   "host_permissions": [
-    "http://localhost:8000/*" 
+    "http://localhost:8000/*"
   ],
 
   "content_scripts": [
