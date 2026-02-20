@@ -35,7 +35,7 @@ A Chrome extension that monitors student work on Google Docs in real-time. When 
 | Backend API | Node.js + Express | Fast to scaffold, widely known, easily deployable |
 | AI Engine | OCI Generative AI — Llama 3.3 70B | Hosted on Oracle (required), strong reasoning, good instruction-following |
 | Database | OCI Autonomous Database (ATP) | Free tier, stores session/conversation history |
-| Hosting | OCI Compute — VM.Standard.A1.Flex (Ubuntu 22.04) | Free tier Arm instance, more than enough for a hackathon backend |
+| Hosting | OCI Compute — VM.Standard.A1.Flex (Oracle Linux, AMD, 2 OCPU / 12 GB) | Free tier instance at 64.181.214.188, more than enough for a hackathon backend |
 | Networking | OCI VCN + Public Subnet + Internet Gateway + Security List | Standard OCI networking stack |
 
 ---
@@ -287,30 +287,29 @@ ai-learning-companion/
 
 ## Project Status Tracker
 
-- [ ] Shared GitHub repo created
-- [ ] OCI Compute instance live and SSH accessible
-- [ ] Extension loads as unpacked extension in Chrome
+### Infrastructure & Backend (Engineer 1)
+- [x] Shared GitHub repo created
+- [x] OCI VCN, subnet, security list configured (ports 22, 3000 open externally)
+- [x] OCI Compute instance live at 64.181.214.188, SSH accessible
+- [x] Node.js 20, pm2, git installed on instance
 - [x] API contract locked in — see `api-contract.md`
-- [ ] Backend `/analyze` route working (mock)
-- [ ] Backend `/analyze` route wired to OCI Generative AI
-- [ ] Backend `/chat` route working with Socratic prompt
+- [x] Backend `GET /health` — tested, working
+- [x] Backend `POST /analyze` — wired to OCI Generative AI, tested end-to-end
+- [x] Backend `POST /chat` — Socratic guidance confirmed, tested end-to-end
+- [x] IAM dynamic group + policy created for OCI GenAI instance principal auth
+- [x] Backend deployed via pm2, reachable at `http://64.181.214.188:3000`
+
+### Chrome Extension (Engineer 2)
+- [x] Extension scaffold created (Manifest V3)
+- [x] Pause-trigger tooltip working on generic text fields
 - [ ] Google Docs text extraction working reliably
 - [ ] Sentence/line completion trigger working
-- [ ] Toast notification appearing correctly
+- [ ] Toast notification UI appearing correctly
 - [ ] Extension popup UI complete (toggle + subject + chat)
-- [ ] Extension connected to real backend
-- [ ] End-to-end demo scenario 1 (math) working
-- [ ] End-to-end demo scenario 2 (writing) working
-- [ ] Demo rehearsed
+- [ ] Extension connected to real backend (`http://64.181.214.188:3000`)
 
-Extension scaffold created
-
-✅ Pause-trigger tooltip working on generic text fields
-
-✅ Backend API scaffolded on laptop first (/coach)
-
-✅ Deploy backend to OCI Compute (public HTTPS if possible)
-
-✅ Wire extension to OCI endpoint
-
-✅ Add OCI GenAI call in backend (keep OpenAI fallback)
+### Integration & Demo
+- [ ] End-to-end test: write mistake in Google Docs → notification appears
+- [ ] End-to-end test: Socratic chat flow working from extension
+- [ ] Demo scenario 1 (math equation mistake) rehearsed
+- [ ] Demo scenario 2 (biology essay mistake) rehearsed

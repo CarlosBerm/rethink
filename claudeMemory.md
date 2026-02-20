@@ -5,7 +5,7 @@ This file maintains running context for Claude across sessions. Update it after 
 ---
 
 ## Last Updated
-2026-02-19 (updated with design decisions and project plan)
+2026-02-20 — Backend fully deployed and tested. All 3 endpoints verified end-to-end with OCI GenAI.
 
 ---
 
@@ -18,113 +18,109 @@ This file maintains running context for Claude across sessions. Update it after 
 ## Our Project: Real-Time AI Learning Companion (Chrome Extension)
 
 ### Core Concept
-A Chrome extension that monitors student work in real-time and uses AI to detect mistakes — but instead of providing the answer, it notifies the student that a mistake exists and guides them toward finding it themselves. This combats AI dependency by keeping the student in the problem-solving loop.
+A Chrome extension that monitors student work in real-time (Google Docs) and uses AI to detect mistakes. Instead of giving the answer, it notifies the student with a location hint only. If they need help, a Socratic chat guides them step by step without ever giving the solution.
 
 ### Key Principles
-- **Detect, don't solve**: The AI identifies that a mistake was made, not what the mistake is (at first)
-- **Socratic guidance**: If a student asks for help, the AI guides them progressively closer without giving the answer outright
-- **Non-intrusive**: Student can toggle the assistant on/off via a Chrome extension popup
-- **Enhances, doesn't replace**: Keeps the human (student) as the active learner
+- **Detect, don't solve**: AI identifies that a mistake exists, not what it is (at first)
+- **Socratic guidance**: Chat hints get progressively more specific, never give the answer
+- **Non-intrusive**: Student toggles on/off via extension popup
+- **Enhances, doesn't replace**: Student remains the active problem-solver
 
-### Use Cases (from pitch)
-1. **Math (Google Docs)**: Student solves a math equation but forgets to flip signs when moving a term. AI notifies them of an error in their process. Student rechecks and fixes it (with guided chat help if needed).
-2. **Essay writing (Google Docs)**: Student writes a factually inaccurate sentence in a biology essay. AI flags that the sentence isn't fully correct. If the student can't find the issue, they chat with the AI which guides them toward the correction without stating it outright.
+### Finalized Design Decisions
+- **Error notification**: Location hint only — e.g., "There may be an error in sentence 2" or "Check line 4 of your solution"
+- **Analysis trigger (writing)**: After a full sentence is completed (`.`, `?`, `!`, newline)
+- **Analysis trigger (math)**: After a line is completed (Enter / newline)
+- **Subject context**: Student sets it in the extension popup (Writing / Math / Science / Other)
+- **Team size**: 2 engineers — Eng 1 = backend/OCI, Eng 2 = Chrome extension/frontend
 
 ---
 
-## Technical Architecture
+## Tech Stack
 
-### Platform
-- **Frontend**: Chrome Extension (content script + popup UI)
-- **Backend**: Hosted on Oracle Cloud Infrastructure (OCI) — Compute Instance (Ubuntu, A1.Flex Arm shape)
-- **AI Engine**: OCI Generative AI service (LLM — Llama 3.3 70B or Cohere Command R)
-- **Database**: OCI Autonomous Database (for session/conversation history)
-
-### Why NOT Oracle Document Understanding
-Document Understanding is for OCR/scanning PDFs and images. It requires a file input and is designed for document digitization pipelines. For this project, we already have raw text from Google Docs — we need a reasoning LLM, not an OCR service.
-
-### Correct OCI Services to Use
-| Need | OCI Service |
+| Layer | Technology |
 |---|---|
-| LLM reasoning/chat | OCI Generative AI (Llama 4, Llama 3.3 70B, Cohere Command A/R) |
-| Backend server | OCI Compute (VM.Standard.A1.Flex, Ubuntu 22.04) |
-| Database (sessions/history) | OCI Autonomous Database (ATP, free tier) |
-| Networking | VCN + Public Subnet + Internet Gateway + Security List |
-
-### Call Flow
-```
-Chrome Extension (content script reads Google Docs text)
-  → POST to our backend API (HTTPS, running on OCI Compute)
-    → OCI Generative AI Chat API (signed OCI request with private key)
-      → LLM analyzes text, detects mistakes, returns Socratic guidance
-  → Extension displays non-intrusive notification to student
-  → Optional: Student opens chat, exchanges messages with Socratic AI
-```
-
-### Why the backend is required
-- OCI auth requires HMAC-SHA256 signed requests using a private API key
-- Embedding that private key in a Chrome extension would expose it publicly
-- OCI endpoints block direct browser fetch calls (CORS)
-- The backend acts as a secure proxy and owns all OCI credentials
+| Chrome Extension | Manifest V3, Vanilla JS (content script) + React (popup/chat UI) |
+| Backend API | Node.js + Express, running on OCI Compute |
+| AI Engine | OCI Generative AI — Llama 3.3 70B (OpenAI as fallback) |
+| Database | OCI Autonomous Database (ATP, free tier) |
+| Hosting | OCI Compute — VM.Standard.A1.Flex, Ubuntu 22.04, us-chicago-1 |
 
 ---
 
-## Key Technical Challenges to Solve
+## API Endpoints (see api-contract.md for full spec)
 
-### 1. Reading Google Docs Text in Real-Time
-Google Docs does NOT use standard HTML for text rendering — it uses a canvas-based approach. Getting text from a Google Docs tab requires one of:
-- **MutationObserver on the accessibility tree** (most practical for extension)
-- **Google Docs API** (requires OAuth, adds complexity)
-- **Reading the hidden `.kix-appview-editor` DOM layer** (fragile but works)
+- `GET  /health`   — liveness check
+- `POST /analyze`  — analyze a completed sentence/line, return location hint only
+- `POST /chat`     — Socratic guidance chat using privately stored error context
 
-### 2. Debouncing / When to Trigger Analysis (FINALIZED)
-- **Writing**: Trigger after a full sentence is completed (`.`, `?`, `!`, or newline)
-- **Math**: Trigger after a line is completed (Enter / newline)
+**Note:** teammate's local scaffold uses `/coach` as the route name — align on `/analyze` or decide which to keep.
 
-### 3. Socratic Guidance Prompting
-The LLM system prompt is critical. It must be instructed to:
-- Confirm whether a mistake exists (yes/no)
-- NOT reveal what the mistake is directly
-- If asked for help, guide in steps — start vague, get more specific each message
-- Never just give the answer
-
-### 4. Subject Detection
-The AI needs to know if the content is math, science, writing, etc. to analyze it correctly. Either:
-- Auto-detect from content
-- Let student set subject context in extension popup
+### The "Private Error" Pattern (critical)
+- `/analyze` → LLM detects the actual error internally → backend stores it in DB → only sends `location` hint to extension
+- `/chat` → backend injects the stored private error into the LLM system prompt → guides student without revealing it
+- `errorInternal` is **never** sent to the extension under any circumstances
 
 ---
 
-## Oracle Cloud Account Info
+## OCI Account Info
 - Tenancy: bermu12
 - Region: US Midwest (Chicago) — us-chicago-1
 - Account type: Hackathon pro account with credits
 
 ---
 
+## OCI Instance Info (IMPORTANT)
+- **Public IP**: 64.181.214.188
+- **OS**: Oracle Linux (NOT Ubuntu) — uses `dnf` not `apt`
+- **SSH user**: `opc` (NOT `ubuntu`)
+- **SSH key**: `$HOME\.ssh\hackathon_oci` (Windows path)
+- **SSH command**: `ssh -i "$HOME\.ssh\hackathon_oci" opc@64.181.214.188`
+- **Shape**: AMD Flex, 2 OCPU / 12 GB RAM
+
+## Current Status (as of this handoff)
+
+### Done (Engineer 2 — Extension)
+- [x] Extension scaffold created
+- [x] Pause-trigger tooltip working on generic text fields
+
+### Done (Engineer 1 — Backend)
+- [x] Backend API scaffolded on laptop (/coach route)
+- [x] API contract finalized — see `api-contract.md`
+
+### Done (Engineer 1 — OCI)
+- [x] VCN + Security List created (ports 22, 80, 443, 3000 open)
+- [x] Compute instance running at 64.181.214.188
+- [x] SSH access working (user: opc, key: hackathon_oci)
+- [x] firewalld disabled (`sudo systemctl stop firewalld && sudo systemctl disable firewalld`)
+- [x] System updated (`sudo dnf update -y`)
+
+### Done (Engineer 1 — Backend deployment)
+- [x] Node.js 20, pm2, git installed on OCI instance
+- [x] Repo cloned to ~/rethink on instance (branch: rethinkOCI)
+- [x] Node.js Express backend built: GET /health, POST /analyze, POST /chat
+- [x] OCI Generative AI integrated (Llama 3.3 70B, instance principal auth)
+- [x] IAM dynamic group `hackathon-compute` + policy `hackathon-genai-policy` created
+- [x] Backend running via pm2 (process name: ai-companion, port 3000)
+- [x] `/health` confirmed: `{"status":"ok"}` at localhost:3000 and externally at 64.181.214.188:3000
+- [x] `/analyze` tested: correctly detected science error, returned location hint only
+- [x] `/chat` tested: Socratic response confirmed — did not reveal the error, guided with questions
+
+### OCI GenAI Notes
+- Auth: `InstancePrincipalsAuthenticationDetailsProviderBuilder().build()` (NOT `.create()`)
+- Compartment OCID: auto-fetched from instance metadata (169.254.169.254)
+- Model: `meta.llama-3.3-70b-instruct`
+- Endpoint: `https://inference.generativeai.us-chicago-1.oci.oraclecloud.com`
+- pm2 restart: `pm2 restart ai-companion` (run from anywhere on the instance)
+- pm2 deploy: `cd ~/rethink && git pull origin rethinkOCI && pm2 restart ai-companion`
+
+### Next Up — RESUME HERE in new chat
+- [ ] Wire extension to OCI endpoint (`http://64.181.214.188:3000`)
+- [ ] Integrate extension with real backend (replace any mock calls)
+- [ ] End-to-end demo test: type in Google Docs → error detected → Socratic chat
+
+---
+
 ## Project Files
-- `projectPlan.md` — Full project plan with architecture, engineer work split, demo script, and build phases
-- `api-contract.md` — Formal API contract (source of truth for both engineers). Includes all endpoints, session lifecycle, DB schema, CORS config, mock responses, and the "private error" Socratic pattern.
-- `claudeMemory.md` — This file
-
----
-
-## Finalized Design Decisions
-- **Error notification**: Location hint only — e.g., "There may be an error in sentence 2" or "Check line 4 of your solution." No detail about what is wrong.
-- **Analysis trigger (writing)**: After a full sentence is completed (`.`, `?`, `!`, newline)
-- **Analysis trigger (math)**: After a line is completed (Enter key / newline)
-- **Subject context**: Student sets it in the extension popup (Writing / Math / Science / Other)
-- **Team size**: 2 engineers — Eng 1 owns backend/OCI, Eng 2 owns Chrome extension/frontend
-
----
-
-## Project Status
-- [ ] Architecture finalized
-- [ ] OCI Compute instance created
-- [ ] Backend API server scaffolded
-- [ ] OCI Generative AI integration built
-- [ ] Chrome Extension scaffold created
-- [ ] Google Docs text extraction working
-- [ ] Real-time mistake detection working
-- [ ] Socratic chat UI working
-- [ ] End-to-end demo ready
+- `projectPlan.md` — Full plan: architecture, work division, build phases, demo script
+- `api-contract.md` — Full API spec: endpoints, session lifecycle, DB schema, CORS, mock responses
+- `claudeMemory.md` — This file (always read first)
