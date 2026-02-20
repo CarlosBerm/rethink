@@ -18,8 +18,8 @@ document.addEventListener("mousemove", (e) => {
 // ── Pre-create UI elements ────────────────────────────────────────────────
 // Done before MutationObserver starts to prevent self-triggering.
 
-if (SHOW_OVERLAY) ensureOverlay();
-ensureTooltip();
+// if (SHOW_OVERLAY) ensureOverlay();
+// ensureTooltip();
 
 // ── Keyboard listener ─────────────────────────────────────────────────────
 
