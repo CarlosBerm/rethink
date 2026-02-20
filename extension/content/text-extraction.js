@@ -54,25 +54,13 @@ async function getDocumentText() {
 }
 
 // ── Sentence extraction ───────────────────────────────────────────────────
-// Returns the sentence that changed since the last analysis cycle.
-// Falls back to the last complete sentence when no diff is found.
+// Sends only the most recently completed sentence to the API.
 
 function extractNewContent(fullText) {
   const text = (fullText || "").trim();
-  const sentences = text.split(/(?<=[.?!\n])\s+/).map(s => s.trim()).filter(s => s.length > 5);
-
-  // Diff against the previous snapshot to find which sentence was edited or added.
-  if (lastFullText) {
-    const oldSet = new Set(
-      lastFullText.trim().split(/(?<=[.?!\n])\s+/).map(s => s.trim()).filter(s => s.length > 5)
-    );
-    const changed = sentences.find(s => /[.?!\n]$/.test(s) && !oldSet.has(s));
-    if (changed) return changed;
+  const chunks = text.split(/(?<=[.?!\n])\s+/).map(s => s.trim()).filter(s => s.length > 5);
+  for (let i = chunks.length - 1; i >= 0; i--) {
+    if (/[.?!\n]$/.test(chunks[i])) return chunks[i];
   }
-
-  // Fallback: return the last complete sentence (original behaviour).
-  for (let i = sentences.length - 1; i >= 0; i--) {
-    if (/[.?!\n]$/.test(sentences[i])) return sentences[i];
-  }
-  return sentences[sentences.length - 1] || text.slice(-300);
+  return chunks[chunks.length - 1] || text.slice(-300);
 }
