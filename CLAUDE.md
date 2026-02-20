@@ -8,4 +8,4 @@ This is a new, empty project. No source code, build system, or architecture has 
 
 ## Notes
 
-- The `.claude/settings.local.json` currently restricts Bash permissions to `echo` commands only. Update this as the project grows and more commands are needed for development.
+- The `.claude/settings.local.json` allows: `echo`, `ssh`, `curl`, `git`, `npm`, `node`, `cat`.
