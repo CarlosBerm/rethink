@@ -1,11 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
-const OpenAI = require('openai');
+const common = require('oci-common');
+const aiinference = require('oci-generativeaiinference');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const GENAI_ENDPOINT = 'https://inference.generativeai.us-chicago-1.oci.oraclecloud.com';
+const MODEL_ID = 'meta.llama-3.3-70b-instruct';
 
 // ---- CORS ----
 app.use(cors({
@@ -26,9 +29,64 @@ app.use(express.json());
 // sessions[id] = { subject, fullText, errorInternal, errorLocation, hasActiveError, chatHistory[] }
 const sessions = new Map();
 
-// ---- LLM client ----
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
+// ---- OCI GenAI client ----
+let genaiClient;
+let compartmentId;
+
+async function initOCI() {
+  // Fetch compartment ID from instance metadata (no env var needed)
+  const metaRes = await fetch('http://169.254.169.254/opc/v2/instance/', {
+    headers: { Authorization: 'Bearer Oracle' }
+  });
+  const meta = await metaRes.json();
+  compartmentId = process.env.OCI_COMPARTMENT_ID || meta.compartmentId;
+
+  // Instance principal auth — the OCI instance IS the credential
+  const provider = await common.InstancePrincipalsAuthenticationDetailsProvider.create();
+  genaiClient = new aiinference.GenerativeAiInferenceClient({
+    authenticationDetailsProvider: provider
+  });
+  genaiClient.endpoint = GENAI_ENDPOINT;
+
+  console.log(`OCI GenAI client initialized | compartment: ${compartmentId}`);
+}
+
+// ---- LLM helper ----
+
+function toOciMessages(messages) {
+  return messages.map(m => ({
+    role: m.role === 'assistant' ? 'CHATBOT' : m.role.toUpperCase(),
+    content: [{ type: 'TEXT', text: m.content }]
+  }));
+}
+
+function extractJson(text) {
+  // Try direct parse, then strip markdown code fences
+  try { return JSON.parse(text); } catch {}
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/) || text.match(/(\{[\s\S]*?\})/);
+  if (match) return JSON.parse(match[1].trim());
+  throw new Error('Could not parse JSON from LLM response: ' + text);
+}
+
+async function callLLM(messages, temperature = 0.7) {
+  const response = await genaiClient.chat({
+    chatDetails: {
+      compartmentId,
+      servingMode: {
+        modelId: MODEL_ID,
+        servingType: 'ON_DEMAND'
+      },
+      chatRequest: {
+        apiFormat: 'GENERIC',
+        messages: toOciMessages(messages),
+        maxTokens: 1024,
+        temperature,
+        isStream: false
+      }
+    }
+  });
+  return response.chatResult.chatResponse.choices[0].message.content[0].text;
+}
 
 // ---- Prompt builders ----
 
@@ -47,7 +105,7 @@ You will receive:
 - fullText: the complete document (for context only)
 - newContent: the newly completed sentence or line (what to actually check)
 
-Respond ONLY with valid JSON — no other text.
+Respond ONLY with valid JSON — no other text, no markdown, no explanation.
 
 If an error exists in newContent:
 {"hasError": true, "internalError": "<detailed description of the actual error, for tutor use only>", "location": "<vague location hint — e.g. 'In your most recent sentence.' or 'On the most recent step.' Never describe what the error is, only where to look.>"}
@@ -86,7 +144,7 @@ Rules:
 // ---- Routes ----
 
 // GET /health
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -94,7 +152,6 @@ app.get('/health', (req, res) => {
 app.post('/analyze', async (req, res) => {
   const { sessionId, subject, fullText, newContent } = req.body;
 
-  // Validation
   if (!subject) return res.status(400).json({ error: 'Missing required field: subject', code: 'MISSING_FIELD' });
   if (!fullText) return res.status(400).json({ error: 'Missing required field: fullText', code: 'MISSING_FIELD' });
   if (!newContent) return res.status(400).json({ error: 'Missing required field: newContent', code: 'MISSING_FIELD' });
@@ -124,30 +181,21 @@ app.post('/analyze', async (req, res) => {
   // Call LLM
   let llmResult;
   try {
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: buildAnalyzeSystemPrompt(subject) },
-        {
-          role: 'user',
-          content: `Full text:\n"""\n${fullText}\n"""\n\nNewly completed content to analyze:\n"""\n${newContent}\n"""`
-        }
-      ],
-      temperature: 0.2,
-      response_format: { type: 'json_object' }
-    });
-    llmResult = JSON.parse(completion.choices[0].message.content);
+    const raw = await callLLM([
+      { role: 'system', content: buildAnalyzeSystemPrompt(subject) },
+      { role: 'user', content: `Full text:\n"""\n${fullText}\n"""\n\nNewly completed content to analyze:\n"""\n${newContent}\n"""` }
+    ], 0.2);
+    llmResult = extractJson(raw);
   } catch (err) {
     console.error('LLM error on /analyze:', err.message);
     return res.status(500).json({ error: 'LLM service unavailable', code: 'LLM_ERROR' });
   }
 
-  // Update session and respond
   if (llmResult.hasError) {
     session.errorInternal = llmResult.internalError;
     session.errorLocation = llmResult.location;
     session.hasActiveError = true;
-    session.chatHistory = []; // reset chat on each new detected error
+    session.chatHistory = [];
     return res.json({ sessionId: sid, hasError: true, location: llmResult.location });
   } else {
     return res.json({ sessionId: sid, hasError: false });
@@ -182,25 +230,26 @@ app.post('/chat', async (req, res) => {
 
   let reply;
   try {
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      messages,
-      temperature: 0.7
-    });
-    reply = completion.choices[0].message.content;
+    reply = await callLLM(messages, 0.7);
   } catch (err) {
     console.error('LLM error on /chat:', err.message);
     return res.status(500).json({ error: 'LLM service unavailable', code: 'LLM_ERROR' });
   }
 
-  // Persist chat history
   session.chatHistory.push({ role: 'user', content: message });
   session.chatHistory.push({ role: 'assistant', content: reply });
 
   res.json({ reply });
 });
 
-// ---- Start server ----
-app.listen(PORT, () => {
-  console.log(`AI Learning Companion backend running on port ${PORT}`);
-});
+// ---- Start ----
+initOCI()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`AI Learning Companion backend running on port ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('Failed to initialize OCI client:', err.message);
+    process.exit(1);
+  });
