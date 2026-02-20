@@ -46,7 +46,7 @@ async function analyzeNow() {
   const fullText   = trimmed.slice(-WINDOW_CHARS);
   const newContent = extractNewContent(fullText);
   lastFullText = fullText;   // update snapshot for next diff
-  updateOverlay(fullText, newContent, source);
+  // updateOverlay(fullText, newContent, source);
   console.log(`[Rethink] newContent →`, newContent);
 
   const now         = Date.now();
