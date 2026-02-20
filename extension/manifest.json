@@ -8,9 +8,7 @@
     "storage"
   ],
 
-  "host_permissions": [
-    "http://localhost:8000/*" 
-  ],
+  "host_permissions": ["http://64.181.214.188:3000/*"],
 
   "content_scripts": [
     {

@@ -8,7 +8,9 @@
  ********************************************************************/
 
 // ===================== CONFIG =====================
-const API_URL = "http://localhost:8000/analyze"; // change to /coach if needed
+const BASE_URL = "http://64.181.214.188:3000";
+const ANALYZE_URL = `${BASE_URL}/analyze`;
+const CHAT_URL = `${BASE_URL}/chat`;
 const PAUSE_MS = 1800;
 const MIN_CHARS = 60;
 const WINDOW_CHARS = 1200;
@@ -281,6 +283,15 @@ function detectSubject(text) {
   return "unknown";
 }
 
+function mapSubjectToContract(text) {
+  const detected = detectSubject(text);
+
+  if (detected === "math") return "math";
+  if (detected === "writing") return "writing";
+
+  return "other"; // map "unknown" → "other"
+}
+
 function isLikelyThesis(text) {
   return text.toLowerCase().includes("should") ||
          text.toLowerCase().includes("is better") ||
@@ -293,7 +304,7 @@ async function callAnalyzeAPI(text) {
   if (MOCK_MODE) {
     await new Promise(r => setTimeout(r, 500)); // simulate delay
 
-    const subject = detectSubject(text);
+    const subject = mapSubjectToContract(text);
 
     // ===== MATH MOCK =====
     if (subject === "math") {
