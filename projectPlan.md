@@ -18,10 +18,10 @@ A Chrome extension that monitors student work on Google Docs in real-time. When 
 
 | Decision | Choice |
 |---|---|
-| Error notification style | Location hint only — e.g., "There may be an error in sentence 2" or "Check line 4 of your solution" |
+| Error notification style | Location hint only — e.g., "There may be an error in sentence 2" |
 | Analysis trigger (writing) | After a full sentence is completed (period, `?`, `!`, or newline) |
 | Analysis trigger (math) | After a line is completed (newline / Enter key) |
-| Subject context | student sets it in the extension popup (Writing / Math / Science / Other) |
+| Subject context | Student sets it in the extension popup (Writing / Math / Science / Other) |
 | Socratic chat | Progressive hints — each message gets slightly more specific, never gives the answer |
 | Extension toggle | On/Off switch in popup — students control when it's active |
 
@@ -31,12 +31,11 @@ A Chrome extension that monitors student work on Google Docs in real-time. When 
 
 | Layer | Technology | Why |
 |---|---|---|
-| Chrome Extension | Manifest V3, Vanilla JS (content script) + React (popup/chat UI) | MV3 is the current standard; React makes the chat UI clean and fast to build |
+| Chrome Extension | Manifest V3, Vanilla JS (7 content script files) + Tailwind CSS | MV3 standard; split files for readability; Tailwind for consistent styling |
 | Backend API | Node.js + Express | Fast to scaffold, widely known, easily deployable |
-| AI Engine | OCI Generative AI — Llama 3.3 70B | Hosted on Oracle (required), strong reasoning, good instruction-following |
-| Database | OCI Autonomous Database (ATP) | Free tier, stores session/conversation history |
-| Hosting | OCI Compute — VM.Standard.A1.Flex (Oracle Linux, AMD, 2 OCPU / 12 GB) | Free tier instance at 64.181.214.188, more than enough for a hackathon backend |
-| Networking | OCI VCN + Public Subnet + Internet Gateway + Security List | Standard OCI networking stack |
+| AI Engine | OCI Generative AI — Llama 3.3 70B | Hosted on Oracle (required), strong reasoning |
+| Hosting | OCI Compute — AMD Flex, 2 OCPU / 12 GB, Oracle Linux, 64.181.214.188 | Free tier OCI instance |
+| Networking | OCI VCN + Public Subnet + Internet Gateway + Security List | Standard OCI networking |
 
 ---
 
@@ -46,21 +45,30 @@ A Chrome extension that monitors student work on Google Docs in real-time. When 
 ┌─────────────────────────────────────────────┐
 │           Chrome Extension (Browser)         │
 │                                              │
-│  content.js                                  │
-│  ├── Watches Google Docs DOM for text        │
-│  ├── Detects sentence/line completion        │
-│  └── Sends text to backend API               │
+│  content/ (7 files, shared global scope)     │
+│  ├── config.js    — constants                │
+│  ├── state.js     — mutable state            │
+│  ├── ui.js        — overlay + tooltip        │
+│  ├── text-extraction.js — /export fetch      │
+│  ├── api.js       — storage + callAnalyze    │
+│  ├── analyzer.js  — debounce + analyzeNow    │
+│  └── init.js      — event listeners + MO     │
 │                                              │
-│  popup (React)                               │
+│  popup/ (Tailwind CSS)                       │
 │  ├── On/Off toggle                           │
 │  ├── Subject selector (Writing/Math/etc.)    │
+│  ├── Status banner (last analysis result)    │
 │  └── Chat interface (Socratic guidance)      │
+│                                              │
+│  background.js (service worker)              │
+│  └── Proxies HTTP calls to bypass            │
+│      mixed-content block (HTTPS→HTTP)        │
 └──────────────────┬──────────────────────────┘
-                   │ HTTPS POST
+                   │ HTTP POST (via background.js)
                    ▼
 ┌─────────────────────────────────────────────┐
 │         Backend API (OCI Compute)            │
-│         Node.js / Express                    │
+│         Node.js / Express — port 3000        │
 │                                              │
 │  POST /analyze  ← receives text, subject    │
 │  POST /chat     ← receives chat message     │
@@ -69,21 +77,14 @@ A Chrome extension that monitors student work on Google Docs in real-time. When 
 │  ├── Calls OCI Generative AI (signed req)   │
 │  └── Returns structured JSON response       │
 └──────────────────┬──────────────────────────┘
-                   │ OCI SDK (signed)
+                   │ OCI SDK (instance principal auth)
                    ▼
 ┌─────────────────────────────────────────────┐
 │         OCI Generative AI                    │
-│         Llama 3.3 70B                        │
+│         meta.llama-3.3-70b-instruct          │
 │                                              │
-│  System prompt enforces Socratic behavior:  │
-│  - Detect error: yes/no + location only     │
-│  - Chat: guide step by step, never answer   │
-└─────────────────────────────────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────┐
-│         OCI Autonomous Database (ATP)        │
-│         Stores: sessions, chat history       │
+│  /analyze: detect error → return location   │
+│  /chat: Socratic guidance, never give answer │
 └─────────────────────────────────────────────┘
 ```
 
@@ -91,173 +92,121 @@ A Chrome extension that monitors student work on Google Docs in real-time. When 
 
 ## API Contract
 
-See `api-contract.md` for the full formal contract. It is the source of truth for both engineers and includes:
+See `api-contract.md` for the full formal contract. Includes:
 - All endpoint specs (`/health`, `/analyze`, `/chat`)
 - Session lifecycle and the "private error" pattern
-- Database schema
-- CORS configuration
-- Mock responses for Engineer 2 to use while the backend is being built
-- Error codes reference
+- Database schema, CORS config, mock responses, error codes
 
 ---
 
 ## Work Division — 2 Engineers
 
-These two tracks run **in parallel** after Phase 1 is complete.
-
-### Engineer 1 — Backend & OCI Infrastructure
-
-| Task | Details |
+### Engineer 1 — Backend & OCI Infrastructure (COMPLETE)
+| Task | Status |
 |---|---|
-| OCI Networking setup | Create VCN, public subnet, internet gateway, security list (ports 22, 80, 443, 3000) |
-| OCI Compute instance | Launch Ubuntu 22.04 A1.Flex VM, SSH keys, assign public IP |
-| Backend scaffold | Node.js + Express project, `/analyze` and `/chat` routes, CORS config |
-| OCI Generative AI integration | Install OCI SDK, configure auth (`~/.oci/config`), wire up LLM calls |
-| Prompt engineering | Write and test system prompts for both mistake detection and Socratic chat |
-| Database setup | Create Autonomous DB instance, create sessions and messages tables, connect from backend |
-| Deploy & expose | Run backend on the OCI instance, set up process manager (pm2), verify HTTPS or HTTP access |
+| OCI Networking setup | ✅ Done |
+| OCI Compute instance | ✅ Done — 64.181.214.188, pm2 `ai-companion` |
+| Backend scaffold | ✅ Done |
+| OCI Generative AI integration | ✅ Done — Llama 3.3 70B, instance principal auth |
+| Prompt engineering | ✅ Done |
+| Session store | ✅ In-memory Map (sufficient for demo) |
+| Deploy & expose | ✅ Done — port 3000 open |
 
 ### Engineer 2 — Chrome Extension & Frontend
-
-| Task | Details |
+| Task | Status |
 |---|---|
-| Extension scaffold | Set up Manifest V3 project structure (`manifest.json`, `content.js`, `background.js`, `popup/`) |
-| Google Docs text extraction | Content script using MutationObserver on the Google Docs accessibility DOM layer to extract text |
-| Trigger logic | Detect sentence completion (`.`, `?`, `!`, newline) for writing; line completion (Enter) for math |
-| Backend communication | `fetch()` calls from content script to backend `/analyze` endpoint |
-| Error notification UI | Non-intrusive toast/banner in the corner of the page showing the location hint |
-| Popup UI (React) | On/Off toggle, subject selector dropdown, chat window that calls `/chat` endpoint |
-| Session management | Generate/store `sessionId` in `chrome.storage.local`, pass it with every API call |
-| Mock backend | While backend is being built, use hardcoded mock responses to develop and test the UI |
+| Extension scaffold (Manifest V3) | ✅ Done |
+| Google Docs text extraction | ✅ Done — `/export?format=txt` endpoint |
+| Trigger logic (debounce + sentence detection) | ✅ Done |
+| Backend communication via background.js | ✅ Done |
+| Error notification tooltip | ✅ Done |
+| Session management (chrome.storage.local) | ✅ Done |
+| Content.js split into 7 focused files | ✅ Done |
+| Tailwind CSS build pipeline | ✅ Done |
+| Popup UI (toggle + subject + status + chat) | ✅ Built — debugging needed |
+| End-to-end Socratic chat from popup | ⬜ Pending |
 
 ---
 
 ## Build Phases
 
-### Phase 1 — Setup & API Contract (Both Engineers Together)
-- Both engineers read this plan and agree on the API contract above
-- Set up the shared code repository (GitHub)
-- Eng 1: Creates OCI Compute instance and verifies SSH access
-- Eng 2: Sets up Chrome Extension project structure and loads it as an unpacked extension locally
-- Together: Agree on final API shape, create mock responses for Eng 2 to use
+### Phase 1 — Setup & API Contract ✅ Complete
+### Phase 2 — Parallel Development ✅ Complete
+### Phase 3 — Integration ⬜ In Progress
+- [x] Text extraction working end-to-end (export endpoint confirmed)
+- [x] `/analyze` E2E: "Babies have an average height of 5 feet." → `hasError: true` ✓
+- [x] `/analyze` E2E: "Babies are born after 9 months of pregnancy." → `hasError: false` ✓
+- [ ] Popup working: toggle + subject selector saving correctly
+- [ ] Chat flow: error detected → popup → Socratic reply confirmed
 
-### Phase 2 — Parallel Development (Engineers work independently)
-
-**Eng 1 builds:**
-1. Express server with `/analyze` and `/chat` routes returning hardcoded responses first
-2. OCI Generative AI connection — basic LLM call working
-3. Prompt engineering — iterate on system prompts until behavior is correct
-4. Database tables and connection
-5. Wire everything together, deploy to OCI
-
-**Eng 2 builds:**
-1. Chrome extension manifest and project structure
-2. Google Docs text extraction (hardest part — test this early)
-3. Sentence/line completion detection logic
-4. Toast notification UI
-5. Popup with toggle, subject selector, and chat UI (using mock backend)
-
-### Phase 3 — Integration
-- Point extension at real backend URL
-- End-to-end test: write a sentence with an intentional mistake → verify notification appears
-- End-to-end test: send chat messages → verify Socratic responses
-- Fix integration bugs
-
-### Phase 4 — Polish & Demo Prep
-- Refine notification UI (styling, animation)
-- Refine Socratic prompt behavior (test many edge cases)
-- Prepare the two demo scenarios (math equation mistake, biology essay mistake)
-- Rehearse the demo flow
-- Prepare pitch talking points
+### Phase 4 — Polish & Demo Prep ⬜ Up Next
+- [ ] Fix and verify popup
+- [ ] End-to-end Socratic chat demo rehearsed
+- [ ] Demo scenario 1 (math equation mistake) rehearsed
+- [ ] Demo scenario 2 (biology essay mistake) rehearsed
+- [ ] Notification timing + tooltip style polish
+- [ ] Pitch talking points prepared
 
 ---
 
-## Google Docs Text Extraction — Technical Detail
+## Key Technical Notes
 
-This is the highest-risk technical challenge. Tackle it **first** in Phase 2.
-
-Google Docs renders text in a canvas-based editor with a hidden accessibility DOM. The most reliable approach for an extension content script:
-
-```javascript
-// The accessible text content lives here:
-const editor = document.querySelector('.kix-appview-editor');
-// Use MutationObserver to watch for changes
-const observer = new MutationObserver((mutations) => {
-  const text = extractText(); // walk the aria/accessibility tree
-  checkForCompletedSentence(text);
-});
-observer.observe(editor, { childList: true, subtree: true });
+### Google Docs Text Extraction (solved)
+Google Docs renders entirely on `<canvas>` — document text is **not** in any DOM text nodes.
+The **only working approach**: fetch the document's plain-text export endpoint:
 ```
+GET https://docs.google.com/document/d/{docId}/export?format=txt
+```
+- `credentials: "same-origin"` — NOT `"include"` (causes CORS error on redirect to googleusercontent.com)
+- Same-origin from content script context — uses user's existing Google session cookies
+- 5-second cache (`EXPORT_TTL`) avoids hammering on every keystroke
+- Keyboard buffer fallback for unsaved new documents
 
-The text can also be extracted from elements with `role="textbox"` or from `.kix-lineview` elements that represent lines of text in the document.
+### Tailwind CSS Build
+After changing any class names in `popup.html` or `popup.js`:
+```bash
+cd extension && npm run build:css
+```
+Commit `popup/tailwind.css` alongside HTML/JS changes.
 
-**Fallback:** If DOM extraction proves unstable, use `document.execCommand` clipboard trick — programmatically select all and read from clipboard. This is a last resort.
-
----
-
-## Socratic Prompt Engineering — Guidelines
-
-The most important piece of the project. The LLM system prompt must enforce these rules strictly:
-
-**For `/analyze` (mistake detection):**
-- Role: "You are a strict error detector for student work."
-- Task: "Determine if the provided sentence/line contains a factual, logical, or mathematical error."
-- Output format: Structured JSON — `{ "hasError": true/false, "location": "..." }`
-- Constraint: "Do NOT describe what the error is. Only confirm it exists and give a location."
-
-**For `/chat` (Socratic guidance):**
-- Role: "You are a Socratic tutor. You never give direct answers."
-- Rule 1: "Each response should guide the student one step closer to finding the answer themselves."
-- Rule 2: "Ask a question that makes the student think, rather than stating the answer."
-- Rule 3: "If the student is very stuck after multiple messages, give a slightly larger hint — but never the full answer."
-- Rule 4: "If the student directly asks 'just tell me the answer', respond: 'I know you can figure this out. Let's try one more thing...'"
+### Mixed-Content Bypass
+Google Docs is HTTPS; backend is HTTP. Browsers block HTTPS→HTTP fetch from content scripts.
+Fix: all backend calls route through `background.js` service worker (exempt from mixed-content).
 
 ---
 
-## Suggested AI Tools for Development
-
-| Tool | Use Case |
-|---|---|
-| **Claude Code (this)** | Architecture decisions, complex code generation, debugging, OCI setup guidance |
-| **GitHub Copilot** | Inline code completion while writing backend routes and extension logic |
-| **v0.dev** | Generate the React chat UI and popup components quickly from a text description |
-| **Cursor** | AI-powered IDE for faster code navigation and multi-file edits |
-| **Claude.ai / ChatGPT** | Iterating on and testing system prompts for the Socratic LLM behavior |
-| **Perplexity** | Quick research for OCI SDK docs, Chrome Manifest V3 APIs |
-
----
-
-## Repository Structure (recommended)
+## Repository Structure (current)
 
 ```
 ai-learning-companion/
 ├── backend/
-│   ├── server.js          ← Express app entry point
-│   ├── routes/
-│   │   ├── analyze.js     ← POST /analyze handler
-│   │   └── chat.js        ← POST /chat handler
-│   ├── services/
-│   │   ├── ociGenAI.js    ← OCI Generative AI wrapper
-│   │   └── database.js    ← Autonomous DB connection
-│   ├── prompts/
-│   │   ├── analyzePrompt.js   ← System prompt for error detection
-│   │   └── chatPrompt.js      ← System prompt for Socratic chat
-│   ├── package.json
-│   └── .env               ← OCI config, DB credentials (never commit this)
+│   ├── server.js              ← Express app (GET /health, POST /analyze, POST /chat)
+│   └── package.json
 │
 ├── extension/
-│   ├── manifest.json
-│   ├── content.js         ← Injected into Google Docs tabs
-│   ├── background.js      ← Service worker
+│   ├── manifest.json          ← MV3, lists 7 content scripts in order
+│   ├── background.js          ← service worker, proxies /analyze and /chat
+│   ├── content/               ← active content scripts (loaded in order)
+│   │   ├── config.js
+│   │   ├── state.js
+│   │   ├── ui.js
+│   │   ├── text-extraction.js
+│   │   ├── api.js
+│   │   ├── analyzer.js
+│   │   └── init.js
 │   ├── popup/
-│   │   ├── popup.html
-│   │   ├── popup.jsx      ← React component (toggle + subject + chat)
-│   │   └── popup.css
-│   └── icons/
+│   │   ├── popup.html         ← Tailwind UI
+│   │   ├── popup.js
+│   │   ├── input.css          ← Tailwind source
+│   │   └── tailwind.css       ← generated (committed)
+│   ├── pictures/
+│   │   └── rethinkLogoBrain.png
+│   ├── package.json           ← devDep: tailwindcss
+│   └── tailwind.config.js
 │
-├── claudeMemory.md        ← Running context for AI assistant sessions
-├── projectPlan.md         ← This file
-└── README.md
+├── claudeMemory.md
+├── projectPlan.md
+└── api-contract.md
 ```
 
 ---
@@ -265,95 +214,27 @@ ai-learning-companion/
 ## Demo Script (for presentation)
 
 **Scenario 1 — Math:**
-1. Open Google Docs, show the extension icon is active
-2. Begin writing out steps to solve a linear equation
-3. Introduce the mistake: move a term across the equals sign without flipping the sign
-4. Press Enter to complete the line
-5. Show the notification: *"There may be an error on line 3 of your solution."*
-6. Student "doesn't see it" → opens chat
-7. Chat: AI asks "What rule applies when you move a term across an equals sign?"
-8. Student realizes the mistake and corrects it
+1. Open Google Docs, show extension icon is active
+2. Write steps to solve a linear equation, introduce a sign error
+3. Press Enter — notification: *"There may be an error on line 3 of your solution."*
+4. Open popup → Chat: "What rule applies when you move a term across an equals sign?"
+5. Student corrects the mistake
 
 **Scenario 2 — Biology Essay:**
-1. Open Google Docs, set subject to "Writing/Science" in popup
-2. Write a paragraph with one factually incorrect sentence (e.g., wrong cell organelle function)
-3. Complete the sentence with a period
-4. Show notification: *"Sentence 2 in this paragraph may contain a factual inaccuracy."*
-5. Student re-reads and is unsure → opens chat
-6. Chat: AI asks "What is the primary function of the organelle you mentioned?"
-7. Student realizes the error and corrects it
+1. Open Google Docs, set subject to "Science" in popup
+2. Write a paragraph with a factually incorrect sentence (wrong organelle function)
+3. Complete sentence — notification: *"Sentence 2 may contain a factual inaccuracy."*
+4. Open popup → Chat: "What is the primary function of the organelle you mentioned?"
+5. Student corrects the mistake
 
 ---
 
-## Project Status Tracker
+## Socratic Prompt Engineering
 
-### Infrastructure & Backend (Engineer 1)
-- [x] Shared GitHub repo created
-- [x] OCI VCN, subnet, security list configured (ports 22, 3000 open externally)
-- [x] OCI Compute instance live at 64.181.214.188, SSH accessible
-- [x] Node.js 20, pm2, git installed on instance
-- [x] API contract locked in — see `api-contract.md`
-- [x] Backend `GET /health` — tested, working
-- [x] Backend `POST /analyze` — wired to OCI Generative AI, tested end-to-end
-- [x] Backend `POST /chat` — Socratic guidance confirmed, tested end-to-end
-- [x] IAM dynamic group + policy created for OCI GenAI instance principal auth
-- [x] Backend deployed via pm2, reachable at `http://64.181.214.188:3000`
-- [x] In-memory session store (Map) used instead of DB — functional, sufficient for demo
+**For `/analyze`:** Return `{ "hasError": bool, "location": "..." }` — never describe the error itself.
 
-### Chrome Extension (Engineer 2) — Current State as of 2026-02-20
-- [x] Extension scaffold created (Manifest V3)
-- [x] `manifest.json` updated: icons + toolbar icon = `pictures/rethinkLogoBrain.png`
-- [x] `manifest.json` `host_permissions` pointing to `http://64.181.214.188:3000/*`
-- [x] Google Docs text extraction working via `.kix-appview-editor` selector
-- [x] MutationObserver + keydown/keyup events trigger analysis
-- [x] Pause/debounce trigger (1800ms) — fires after user stops typing
-- [x] Debug overlay (bottom-right) showing extracted text
-- [x] Tooltip UI showing mock hints + reflection question
-- [x] Mock responses for math and writing subjects
-- [x] `BASE_URL` set to `http://64.181.214.188:3000` in code
-- [x] `ANALYZE_URL` and `CHAT_URL` constants defined
-- [x] `mapSubjectToContract()` helper added (maps detected subject to API contract values)
-- [x] `MOCK_MODE = false` — hitting real OCI backend
-- [x] `background.js` service worker — proxies fetch to bypass HTTPS→HTTP mixed-content block
-- [x] `callAnalyzeAPI` sends correct API contract body `{ sessionId, subject, fullText, newContent }`
-- [x] Session management via `chrome.storage.local` (sessionId + subject)
-- [x] MutationObserver fixed — filters own tooltip/overlay mutations, no re-trigger loop
-- [x] Tooltip/overlay pre-created before observer starts
-- [x] `activeError` state — error tooltip persists while editing, clears when backend confirms fix
-- [x] `onTypingEvent` shows "Re-checking…" instead of hiding tooltip when error is active
-- [x] **VERIFIED:** "2 + 3 = 10" correctly flagged as error end-to-end
-- [ ] **No popup UI** — no `popup.html`, `popup.js` files exist
-- [ ] **No chat UI** — `/chat` endpoint never called from extension
-- [ ] **No on/off toggle** — extension always active on Google Docs pages
-- [ ] **No subject selector** — subject auto-detected locally, not set by user
-
-### Integration & Demo
-- [x] End-to-end test: write mistake in Google Docs → notification appears from real backend ✓
-- [ ] End-to-end test: Socratic chat flow working from extension popup
-- [ ] Demo scenario 1 (math equation mistake) rehearsed
-- [ ] Demo scenario 2 (biology essay mistake) rehearsed
-
----
-
-## What Needs to Be Built Next (Priority Order)
-
-### Priority 1 — Wire content.js to real backend (unblocks everything)
-Fix the `callAnalyzeAPI` function to:
-1. Load `sessionId` from `chrome.storage.local`
-2. Send `{ sessionId, subject, fullText, newContent }` matching the API contract
-3. Save the returned `sessionId` back to `chrome.storage.local`
-4. Set `MOCK_MODE = false`
-
-### Priority 2 — Popup UI (toggle + subject + chat)
-Create `extension/popup/popup.html` and `popup.js`:
-1. On/Off toggle (stores state in `chrome.storage.local`, content.js reads it before firing)
-2. Subject selector: Writing / Math / Science / Other (stores in `chrome.storage.local`)
-3. Chat window: input box → calls `POST /chat` with `sessionId` + message → displays reply
-
-### Priority 3 — Update manifest for popup + background
-Add to `manifest.json`:
-- `"action": { "default_popup": "popup/popup.html" }`
-- `"background": { "service_worker": "background.js" }` (if needed)
-
-### Priority 4 — Sentence-completion trigger (nice to have for demo)
-Replace pure pause/debounce with detection of `.`, `?`, `!`, or newline to trigger analysis more precisely. Current debounce approach works but is less precise.
+**For `/chat`:** Socratic tutor rules:
+1. Each reply guides one step closer, never gives the answer
+2. Ask a question, don't state the answer
+3. If very stuck, give a slightly larger hint — but still not the answer
+4. If student asks "just tell me": "I know you can figure this out. Let's try one more thing…"

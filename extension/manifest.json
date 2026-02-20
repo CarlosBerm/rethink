@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Learning Coach (Google Docs)",
+  "name": "Rethink AI",
   "version": "0.1",
   "description": "Real-time AI learning companion for Google Docs",
 
@@ -18,7 +18,8 @@
       "48":  "pictures/rethinkLogoBrain.png",
       "128": "pictures/rethinkLogoBrain.png"
     },
-    "default_title": "Learning Coach"
+    "default_title": "Rethink AI",
+    "default_popup": "popup/popup.html"
   },
 
   "background": {
@@ -29,12 +30,23 @@
     "storage"
   ],
 
-  "host_permissions": ["http://64.181.214.188:3000/*"],
+  "host_permissions": [
+    "http://64.181.214.188:3000/*",
+    "https://docs.google.com/*"
+  ],
 
   "content_scripts": [
     {
       "matches": ["https://docs.google.com/document/*"],
-      "js": ["content.js"],
+      "js": [
+        "content/config.js",
+        "content/state.js",
+        "content/ui.js",
+        "content/text-extraction.js",
+        "content/api.js",
+        "content/analyzer.js",
+        "content/init.js"
+      ],
       "run_at": "document_idle"
     }
   ]
