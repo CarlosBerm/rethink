@@ -42,7 +42,7 @@ async function initOCI() {
   compartmentId = process.env.OCI_COMPARTMENT_ID || meta.compartmentId;
 
   // Instance principal auth — the OCI instance IS the credential
-  const provider = await common.InstancePrincipalsAuthenticationDetailsProvider.create();
+  const provider = await new common.InstancePrincipalsAuthenticationDetailsProviderBuilder().build();
   genaiClient = new aiinference.GenerativeAiInferenceClient({
     authenticationDetailsProvider: provider
   });
