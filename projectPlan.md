@@ -302,3 +302,15 @@ ai-learning-companion/
 - [ ] End-to-end demo scenario 1 (math) working
 - [ ] End-to-end demo scenario 2 (writing) working
 - [ ] Demo rehearsed
+
+Extension scaffold created
+
+✅ Pause-trigger tooltip working on generic text fields
+
+✅ Backend API scaffolded on laptop first (/coach)
+
+✅ Deploy backend to OCI Compute (public HTTPS if possible)
+
+✅ Wire extension to OCI endpoint
+
+✅ Add OCI GenAI call in backend (keep OpenAI fallback)
