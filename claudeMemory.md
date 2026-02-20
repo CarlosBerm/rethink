@@ -5,7 +5,7 @@ This file maintains running context for Claude across sessions. Update it after 
 ---
 
 ## Last Updated
-2026-02-20 — Backend fully deployed and tested. All 3 endpoints verified end-to-end with OCI GenAI.
+2026-02-20 — Popup UI built, content.js split into 7 files, Tailwind CSS wired up.
 
 ---
 
@@ -27,7 +27,7 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 - **Enhances, doesn't replace**: Student remains the active problem-solver
 
 ### Finalized Design Decisions
-- **Error notification**: Location hint only — e.g., "There may be an error in sentence 2" or "Check line 4 of your solution"
+- **Error notification**: Location hint only — e.g., "There may be an error in sentence 2"
 - **Analysis trigger (writing)**: After a full sentence is completed (`.`, `?`, `!`, newline)
 - **Analysis trigger (math)**: After a line is completed (Enter / newline)
 - **Subject context**: Student sets it in the extension popup (Writing / Math / Science / Other)
@@ -39,11 +39,10 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 
 | Layer | Technology |
 |---|---|
-| Chrome Extension | Manifest V3, Vanilla JS (content script) + React (popup/chat UI) |
+| Chrome Extension | Manifest V3, Vanilla JS (content scripts, 7 files) + Tailwind CSS (popup) |
 | Backend API | Node.js + Express, running on OCI Compute |
-| AI Engine | OCI Generative AI — Llama 3.3 70B (OpenAI as fallback) |
-| Database | OCI Autonomous Database (ATP, free tier) |
-| Hosting | OCI Compute — VM.Standard.A1.Flex, Ubuntu 22.04, us-chicago-1 |
+| AI Engine | OCI Generative AI — Llama 3.3 70B |
+| Hosting | OCI Compute — AMD Flex, 2 OCPU / 12 GB RAM, Oracle Linux |
 
 ---
 
@@ -53,19 +52,10 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 - `POST /analyze`  — analyze a completed sentence/line, return location hint only
 - `POST /chat`     — Socratic guidance chat using privately stored error context
 
-**Note:** teammate's local scaffold uses `/coach` as the route name — align on `/analyze` or decide which to keep.
-
 ### The "Private Error" Pattern (critical)
 - `/analyze` → LLM detects the actual error internally → backend stores it in DB → only sends `location` hint to extension
 - `/chat` → backend injects the stored private error into the LLM system prompt → guides student without revealing it
 - `errorInternal` is **never** sent to the extension under any circumstances
-
----
-
-## OCI Account Info
-- Tenancy: bermu12
-- Region: US Midwest (Chicago) — us-chicago-1
-- Account type: Hackathon pro account with credits
 
 ---
 
@@ -76,47 +66,93 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 - **SSH key**: `$HOME\.ssh\hackathon_oci` (Windows path)
 - **SSH command**: `ssh -i "$HOME\.ssh\hackathon_oci" opc@64.181.214.188`
 - **Shape**: AMD Flex, 2 OCPU / 12 GB RAM
-
-## Current Status (as of this handoff)
-
-### Done (Engineer 2 — Extension)
-- [x] Extension scaffold created
-- [x] Pause-trigger tooltip working on generic text fields
-
-### Done (Engineer 1 — Backend)
-- [x] Backend API scaffolded on laptop (/coach route)
-- [x] API contract finalized — see `api-contract.md`
-
-### Done (Engineer 1 — OCI)
-- [x] VCN + Security List created (ports 22, 80, 443, 3000 open)
-- [x] Compute instance running at 64.181.214.188
-- [x] SSH access working (user: opc, key: hackathon_oci)
-- [x] firewalld disabled (`sudo systemctl stop firewalld && sudo systemctl disable firewalld`)
-- [x] System updated (`sudo dnf update -y`)
-
-### Done (Engineer 1 — Backend deployment)
-- [x] Node.js 20, pm2, git installed on OCI instance
-- [x] Repo cloned to ~/rethink on instance (branch: rethinkOCI)
-- [x] Node.js Express backend built: GET /health, POST /analyze, POST /chat
-- [x] OCI Generative AI integrated (Llama 3.3 70B, instance principal auth)
-- [x] IAM dynamic group `hackathon-compute` + policy `hackathon-genai-policy` created
-- [x] Backend running via pm2 (process name: ai-companion, port 3000)
-- [x] `/health` confirmed: `{"status":"ok"}` at localhost:3000 and externally at 64.181.214.188:3000
-- [x] `/analyze` tested: correctly detected science error, returned location hint only
-- [x] `/chat` tested: Socratic response confirmed — did not reveal the error, guided with questions
+- **pm2 process**: `ai-companion`, port 3000
+- **pm2 deploy**: `cd ~/rethink && git pull origin rethinkOCI && pm2 restart ai-companion`
 
 ### OCI GenAI Notes
-- Auth: `InstancePrincipalsAuthenticationDetailsProviderBuilder().build()` (NOT `.create()`)
-- Compartment OCID: auto-fetched from instance metadata (169.254.169.254)
+- Auth: `InstancePrincipalsAuthenticationDetailsProviderBuilder().build()`
+- Compartment OCID: auto-fetched from instance metadata
 - Model: `meta.llama-3.3-70b-instruct`
 - Endpoint: `https://inference.generativeai.us-chicago-1.oci.oraclecloud.com`
-- pm2 restart: `pm2 restart ai-companion` (run from anywhere on the instance)
-- pm2 deploy: `cd ~/rethink && git pull origin rethinkOCI && pm2 restart ai-companion`
+
+---
+
+## Critical Technical Lessons
+
+### Google Docs Text Extraction
+- **Google Docs renders on `<canvas>`** — document text is NOT in any DOM text node
+- All CSS selector approaches (`.kix-appview-editor`, `.kix-paragraphrenderer`, etc.) return the Gemini sidebar text or nothing
+- **Working solution**: `GET https://docs.google.com/document/d/{docId}/export?format=txt` — same-origin fetch from content script, uses existing Google session cookies
+- **CORS fix**: Must use `credentials: "same-origin"` NOT `credentials: "include"`. The export redirects to `googleusercontent.com` which returns `ACAO: *`, incompatible with `include` mode
+- **Keyboard buffer fallback**: Tracks typed keystrokes for unsaved new documents (pre-first-save)
+
+### Chrome Extension CSP Constraints
+- Google Docs blocks inline `<script>` tag injection via CSP — cannot inject page-context scripts
+- Tailwind CDN script is blocked in extension popup pages by MV3 default CSP (`script-src 'self'`)
+- **Fix**: Use Tailwind CLI to generate local `popup/tailwind.css` — run `npm run build:css` in `extension/`
+
+### Mixed-Content / HTTPS→HTTP
+- Content scripts on Google Docs (HTTPS) cannot fetch `http://` backend directly
+- **Fix**: Route all backend calls through `background.js` service worker (MV3 service workers are exempt from mixed-content policy)
+
+---
+
+## Extension File Structure (current)
+
+```
+extension/
+├── manifest.json
+├── background.js              ← service worker, proxies /analyze and /chat
+├── content.js                 ← DEPRECATED (kept for reference, not loaded)
+├── content/                   ← active content scripts, loaded in order
+│   ├── config.js              ← all constants
+│   ├── state.js               ← all mutable state
+│   ├── ui.js                  ← overlay + tooltip UI
+│   ├── text-extraction.js     ← /export fetch + keyboard buffer
+│   ├── api.js                 ← storage helpers + callAnalyzeAPI
+│   ├── analyzer.js            ← debounce + analyzeNow
+│   └── init.js                ← event listeners + MutationObserver
+├── popup/
+│   ├── popup.html             ← Tailwind UI (toggle, subject, status, chat)
+│   ├── popup.js               ← popup logic
+│   ├── input.css              ← Tailwind source (@tailwind directives)
+│   └── tailwind.css           ← generated, committed
+├── pictures/
+│   └── rethinkLogoBrain.png
+├── package.json               ← devDep: tailwindcss
+└── tailwind.config.js         ← scans popup/popup.html + popup.js
+```
+
+---
+
+## Current Status
+
+### Done — Backend (Engineer 1)
+- [x] Backend running via pm2 at 64.181.214.188:3000
+- [x] `/health`, `/analyze`, `/chat` all working end-to-end with OCI GenAI
+- [x] In-memory session store (Map) — functional for demo
+
+### Done — Extension (Engineer 2)
+- [x] Manifest V3 scaffold
+- [x] Google Docs text extraction via `/export?format=txt` (confirmed working)
+- [x] Keyboard buffer fallback for unsaved docs
+- [x] MutationObserver + keydown/keyup debounce trigger (1800ms)
+- [x] Debug overlay + tooltip UI
+- [x] `background.js` service worker proxying backend calls
+- [x] Session management via `chrome.storage.local`
+- [x] `activeError` state — tooltip persists until backend confirms fix
+- [x] `lastResult` saved to storage so popup can display status
+- [x] Content.js split into 7 focused files in `extension/content/`
+- [x] Popup built: On/Off toggle, subject pills, status banner, Socratic chat
+- [x] Tailwind CSS wired up with local build (`npm run build:css`)
+- [x] **VERIFIED END-TO-END**: "Babies have an average height of 5 feet." → `hasError: true` ✓
+- [x] **VERIFIED END-TO-END**: "Babies are born after 9 months of pregnancy." → `hasError: false` ✓
 
 ### Next Up — RESUME HERE in new chat
-- [ ] Wire extension to OCI endpoint (`http://64.181.214.188:3000`)
-- [ ] Integrate extension with real backend (replace any mock calls)
-- [ ] End-to-end demo test: type in Google Docs → error detected → Socratic chat
+- [ ] Debug and fix popup (user reported it wasn't working — investigate why)
+- [ ] Verify Socratic chat flow: error detected → open popup → chat confirms fix
+- [ ] Demo scenario prep: math equation mistake + biology essay mistake
+- [ ] Polish: refine notification timing, tooltip styling
 
 ---
 

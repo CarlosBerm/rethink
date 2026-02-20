@@ -1,0 +1,12 @@
+{
+  "name": "rethink-extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./popup/input.css -o ./popup/tailwind.css",
+    "watch:css": "tailwindcss -i ./popup/input.css -o ./popup/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}
