@@ -1,2 +1,4 @@
 *\.claude
 tmpclaude-*
+node_modules/
+backend/.env
