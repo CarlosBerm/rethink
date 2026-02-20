@@ -45,13 +45,13 @@ async function analyzeNow() {
 
   const fullText   = trimmed.slice(-WINDOW_CHARS);
   const newContent = extractNewContent(fullText);
-  updateOverlay(fullText, newContent, source);
+  // updateOverlay(fullText, newContent, source);
   console.log(`[Rethink] newContent →`, newContent);
 
   const now         = Date.now();
   const coolingDown = now - lastSentAt < COOLDOWN_MS;
   const duplicate   = newContent === lastSentText;
-  // console.log(`[Rethink] coolingDown=${coolingDown} duplicate=${duplicate} activeError=${activeError}`);
+  console.log(`[Rethink] coolingDown=${coolingDown} duplicate=${duplicate} activeError=${activeError}`);
 
   if (coolingDown || duplicate) {
     if (activeError) {
