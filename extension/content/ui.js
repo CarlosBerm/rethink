@@ -12,7 +12,7 @@ function ensureOverlay() {
   box = document.createElement("div");
   box.id = "lc-overlay";
   Object.assign(box.style, {
-    position: "fixed", bottom: "12px", right: "12px", zIndex: "999999",
+    position: "fixed", bottom: "12px", left: "12px", zIndex: "999999",
     width: "460px", maxHeight: "260px", overflow: "auto", padding: "10px",
     borderRadius: "12px", background: "rgba(17,17,17,0.92)", color: "white",
     fontSize: "12px",
