@@ -21,6 +21,8 @@ Rethink AI is a Chrome extension that silently monitors what a student writes in
 The core principle: **never give the answer, always guide the thinking.**
 
 ---
+## INSTALLATION PROCESS FOR JUDGES
+Go to Release to start using Rethink AI :)
 
 ## Features
 
