@@ -4,8 +4,20 @@
 
 // ── Debug Overlay ──────────────────────────────────────────────────────────
 
-function ensureOverlay() {
+async function ensureOverlay() {
   if (!SHOW_OVERLAY) return null;
+
+  // Always respect the popup's on/off toggle
+  const enabled = await new Promise(r =>
+    chrome.storage.local.get("enabled", d => r(d.enabled !== false))
+  );
+  if (!enabled) {
+    const existing = document.getElementById("lc-overlay");
+    if (existing) existing.remove();
+    overlay = null;
+    return null;
+  }
+
   let box = document.getElementById("lc-overlay");
   if (box) return box;
 
@@ -28,8 +40,8 @@ function ensureOverlay() {
   return box;
 }
 
-function updateOverlay(fullText, newContent, source) {
-  const box = ensureOverlay();
+async function updateOverlay(fullText, newContent, source) {
+  const box = await ensureOverlay();
   if (!box) return;
   const preview = (fullText || "").slice(-600);
   box.textContent =

@@ -6,5 +6,5 @@ const PAUSE_MS     = 1800;   // ms of silence before triggering analysis
 const MIN_CHARS    = 8;     // minimum document length before calling API
 const WINDOW_CHARS = 1200;   // max characters sent to backend
 const COOLDOWN_MS  = 8000;   // ms between consecutive API calls
-const SHOW_OVERLAY = true;   // debug overlay — set false for demo
+const SHOW_OVERLAY = false;  // debug overlay — set true locally to debug
 const EXPORT_TTL   = 5000;   // ms before re-fetching the export endpoint

@@ -6,12 +6,18 @@
 
 const BASE_URL = "http://64.181.214.188:3000";
 
+// Set this to match the API_SECRET value in backend/.env — do not commit the real value.
+// Generate a token with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+const API_SECRET = ""; // set locally to match backend/.env API_SECRET
+
+const authHeaders = API_SECRET ? { "Authorization": `Bearer ${API_SECRET}` } : {};
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "ANALYZE") {
     console.log(`[Rethink BG] → POST /analyze`, message.payload);
     fetch(`${BASE_URL}/analyze`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(message.payload)
     })
       .then(r => {
@@ -26,7 +32,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "CHAT") {
     fetch(`${BASE_URL}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(message.payload)
     })
       .then(r => {

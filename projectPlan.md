@@ -119,12 +119,14 @@ See `api-contract.md` for the full formal contract. Includes:
 | Google Docs text extraction | ✅ Done — `/export?format=txt` endpoint |
 | Trigger logic (debounce + sentence detection) | ✅ Done |
 | Backend communication via background.js | ✅ Done |
-| Error notification tooltip | ✅ Done |
+| Error notification tooltip (bottom-right, fixed) | ✅ Done |
 | Session management (chrome.storage.local) | ✅ Done |
 | Content.js split into 7 focused files | ✅ Done |
 | Tailwind CSS build pipeline | ✅ Done |
-| Popup UI (toggle + subject + status + chat) | ✅ Built — debugging needed |
-| End-to-end Socratic chat from popup | ⬜ Pending |
+| Popup UI (toggle + subject + status + chat) | ✅ Done |
+| End-to-end Socratic chat from popup | ✅ Done — verified multi-turn ✓ |
+| Security hardening (bearer token, CORS scoping) | ✅ Done |
+| Debug overlay disabled for production | ✅ Done (`SHOW_OVERLAY = false`) |
 
 ---
 
@@ -132,15 +134,14 @@ See `api-contract.md` for the full formal contract. Includes:
 
 ### Phase 1 — Setup & API Contract ✅ Complete
 ### Phase 2 — Parallel Development ✅ Complete
-### Phase 3 — Integration ⬜ In Progress
+### Phase 3 — Integration ✅ Complete
 - [x] Text extraction working end-to-end (export endpoint confirmed)
-- [x] `/analyze` E2E: "Babies have an average height of 5 feet." → `hasError: true` ✓
-- [x] `/analyze` E2E: "Babies are born after 9 months of pregnancy." → `hasError: false` ✓
-- [ ] Popup working: toggle + subject selector saving correctly
-- [ ] Chat flow: error detected → popup → Socratic reply confirmed
+- [x] `/analyze` E2E: error detection verified ✓
+- [x] Popup working: toggle + subject selector saving correctly
+- [x] Chat flow: error detected → popup → multi-turn Socratic reply verified ✓
+- [x] Security: bearer token + CORS extension ID scoping deployed to OCI server
 
 ### Phase 4 — Polish & Demo Prep ⬜ Up Next
-- [ ] Fix and verify popup
 - [ ] End-to-end Socratic chat demo rehearsed
 - [ ] Demo scenario 1 (math equation mistake) rehearsed
 - [ ] Demo scenario 2 (biology essay mistake) rehearsed
@@ -172,6 +173,14 @@ Commit `popup/tailwind.css` alongside HTML/JS changes.
 ### Mixed-Content Bypass
 Google Docs is HTTPS; backend is HTTP. Browsers block HTTPS→HTTP fetch from content scripts.
 Fix: all backend calls route through `background.js` service worker (exempt from mixed-content).
+
+### OCI GenAI SDK — Message Role (CRITICAL)
+The OCI Node.js SDK's `Message.getJsonObj()` only serializes roles `"USER"`, `"ASSISTANT"`, `"SYSTEM"`. Using `"CHATBOT"` silently drops the `role` field and the OCI REST API rejects the message. Always use `"ASSISTANT"` for assistant messages in `toOciMessages()`. `systemPrompt` is not a valid field on `GenericChatRequest` — pass system instructions as a `role: "SYSTEM"` message.
+
+### Backend Security
+- All API routes protected by `Authorization: Bearer <token>` (set `API_SECRET` in `backend/.env`)
+- CORS scoped to one extension ID (set `ALLOWED_EXTENSION_ID` in `backend/.env`)
+- Deploy server changes via SCP: `scp -i ~/.ssh/<key> backend/server.js opc@<ip>:~/rethink/backend/server.js && ssh -i ~/.ssh/<key> opc@<ip> "pm2 restart ai-companion --update-env"`
 
 ---
 

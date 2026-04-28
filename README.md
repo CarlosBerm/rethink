@@ -96,7 +96,7 @@ The backend detects the actual mistake and keeps it completely hidden from the e
                 ▼
 ┌───────────────────────────────────────┐
 │  Backend  (Node.js / Express)         │
-│  http://64.181.214.188:3000           │
+│  http://<backend-url>:3000            │
 │                                       │
 │  GET  /health                         │
 │  POST /analyze  →  stores error       │
@@ -166,19 +166,32 @@ The backend detects the actual mistake and keeps it completely hidden from the e
 
 ### Backend
 
-> The backend runs on an OCI compute instance with instance principal auth. No credentials or `.env` files are needed on that machine.
-
 ```bash
 cd backend
 npm install
-node server.js        # or: pm2 start server.js --name ai-companion
+cp .env.example .env   # then fill in API_SECRET and ALLOWED_EXTENSION_ID
+node server.js         # or: pm2 start server.js --name ai-companion
 ```
 
-The server listens on port `3000`. CORS is configured to accept `chrome-extension://*` and `http://localhost:*`.
+The server listens on port `3000`.
+
+**Environment variables** (set in `backend/.env`):
+| Variable | Required | Description |
+|---|---|---|
+| `API_SECRET` | Recommended | Shared bearer token — requests without it get a 401 |
+| `ALLOWED_EXTENSION_ID` | Recommended | Your Chrome extension ID — locks CORS to your extension only |
+| `PORT` | No | Defaults to `3000` |
+
+Generate a token: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
 ### Extension
 
-1. **Build the CSS** (required after any popup change):
+1. **Set the API secret** in `extension/background.js` (line 11) — match the value you put in `backend/.env`:
+   ```js
+   const API_SECRET = "your-secret-here"; // do not commit this value
+   ```
+
+2. **Build the CSS** (required after any popup change):
 
    ```bash
    cd extension
@@ -186,12 +199,13 @@ The server listens on port `3000`. CORS is configured to accept `chrome-extensio
    npm run build:css
    ```
 
-2. **Load in Chrome:**
+3. **Load in Chrome:**
    - Open `chrome://extensions`
    - Enable **Developer mode**
    - Click **Load unpacked** → select the `extension/` folder
+   - Copy the extension ID shown and set it as `ALLOWED_EXTENSION_ID` in `backend/.env`
 
-3. Navigate to any `https://docs.google.com/document/...` URL and start typing.
+4. Navigate to any `https://docs.google.com/document/...` URL and start typing.
 
 ---
 

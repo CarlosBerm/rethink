@@ -7,23 +7,41 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const API_SECRET = process.env.API_SECRET || "";
+const ALLOWED_EXTENSION_ID = process.env.ALLOWED_EXTENSION_ID || "";
 const GENAI_ENDPOINT = 'https://inference.generativeai.us-chicago-1.oci.oraclecloud.com';
 const MODEL_ID = 'meta.llama-3.3-70b-instruct';
 
 // ---- CORS ----
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || origin.startsWith('chrome-extension://') || origin.startsWith('http://localhost')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    if (!origin) return callback(null, true); // same-origin / non-browser calls
+    if (origin.startsWith('http://localhost')) return callback(null, true);
+    if (origin.startsWith('chrome-extension://')) {
+      // If ALLOWED_EXTENSION_ID is set, lock to that specific extension only
+      if (ALLOWED_EXTENSION_ID && origin !== `chrome-extension://${ALLOWED_EXTENSION_ID}`) {
+        return callback(new Error('Not allowed by CORS'));
+      }
+      return callback(null, true);
     }
+    callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
+
+// ---- Auth middleware ----
+// Enforces bearer token on all API routes if API_SECRET is configured in .env
+app.use((req, res, next) => {
+  if (!API_SECRET) return next(); // not configured — skip (set API_SECRET in .env to enable)
+  const auth = req.headers['authorization'];
+  if (!auth || auth !== `Bearer ${API_SECRET}`) {
+    return res.status(401).json({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+  }
+  next();
+});
 
 // ---- In-memory session store ----
 // sessions[id] = { subject, fullText, errorInternal, errorLocation, hasActiveError, chatHistory[] }
@@ -54,8 +72,11 @@ async function initOCI() {
 // ---- LLM helper ----
 
 function toOciMessages(messages) {
+  // SDK role values: USER, ASSISTANT, SYSTEM — "CHATBOT" is not recognized by the SDK's
+  // Message.getJsonObj() switch and silently drops the role, causing OCI API to reject it.
+  const roleMap = { user: 'USER', assistant: 'ASSISTANT', system: 'SYSTEM' };
   return messages.map(m => ({
-    role: m.role === 'assistant' ? 'CHATBOT' : m.role.toUpperCase(),
+    role: roleMap[m.role] || 'USER',
     content: [{ type: 'TEXT', text: m.content }]
   }));
 }
@@ -108,7 +129,7 @@ You will receive:
 Respond ONLY with valid JSON — no other text, no markdown, no explanation.
 
 If an error exists in newContent:
-{"hasError": true, "internalError": "<detailed description of the actual error, for tutor use only>", "location": "<vague location hint — e.g. 'In your most recent sentence.' or 'On the most recent step.' Never describe what the error is, only where to look.>"}
+{"hasError": true, "internalError": "<detailed description of the actual error, for tutor use only>", "location": "<location hint — e.g. 'In your sentence about dogs.' or 'In your most recent sentence about cats.' Never describe what the error is, only where to look.>"}
 
 If no error:
 {"hasError": false}

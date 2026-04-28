@@ -5,7 +5,7 @@ This file maintains running context for Claude across sessions. Update it after 
 ---
 
 ## Last Updated
-2026-02-20 — Popup UI built, content.js split into 7 files, Tailwind CSS wired up.
+2026-04-28 — Security hardening complete; multi-turn Socratic chat fully working end-to-end.
 
 ---
 
@@ -62,9 +62,9 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 ## OCI Instance Info (IMPORTANT)
 - **Public IP**: 64.181.214.188
 - **OS**: Oracle Linux (NOT Ubuntu) — uses `dnf` not `apt`
-- **SSH user**: `opc` (NOT `ubuntu`)
-- **SSH key**: `$HOME\.ssh\hackathon_oci` (Windows path)
-- **SSH command**: `ssh -i "$HOME\.ssh\hackathon_oci" opc@64.181.214.188`
+- **SSH user**: `opc` (Oracle Linux default — NOT `ubuntu`)
+- **SSH key**: stored in local `~/.ssh/` — not committed to this repo
+- **SSH command**: see local notes — SSH credentials are not committed to this repo
 - **Shape**: AMD Flex, 2 OCPU / 12 GB RAM
 - **pm2 process**: `ai-companion`, port 3000
 - **pm2 deploy**: `cd ~/rethink && git pull origin rethinkOCI && pm2 restart ai-companion`
@@ -94,6 +94,21 @@ A Chrome extension that monitors student work in real-time (Google Docs) and use
 ### Mixed-Content / HTTPS→HTTP
 - Content scripts on Google Docs (HTTPS) cannot fetch `http://` backend directly
 - **Fix**: Route all backend calls through `background.js` service worker (MV3 service workers are exempt from mixed-content policy)
+
+### OCI GenAI SDK — Message Role Bug (CRITICAL)
+- The OCI Node.js SDK's `Message.getJsonObj()` switch only recognizes roles: `"USER"`, `"ASSISTANT"`, `"SYSTEM"`, `"TOOL"`, `"DEVELOPER"`
+- `"CHATBOT"` hits the `default` case — the role is silently dropped from the serialized object, causing the OCI REST API to reject multi-turn chat messages with a schema validation error
+- **Fix**: Use `role: "ASSISTANT"` (not `"CHATBOT"`) for assistant messages in `toOciMessages()`
+- **Symptom**: First chat turn succeeds; every subsequent turn fails with `LLM_ERROR` (OCI says messages[N] is missing `role`)
+- `systemPrompt` is NOT a valid field on `GenericChatRequest` — system prompt must be a message with `role: "SYSTEM"` in the messages array
+
+### Security — Backend Auth & CORS
+- Backend now requires `Authorization: Bearer <token>` on all API routes (enforced if `API_SECRET` set in `.env`)
+- CORS is scoped to a specific extension ID via `ALLOWED_EXTENSION_ID` in `.env` (falls back to any chrome-extension if not set)
+- `backend/.env` is gitignored and lives only on the OCI server — never commit real values
+- `extension/background.js` has `const API_SECRET = ""` as placeholder — set real value locally, do not commit
+- To deploy a server.js change: `scp` it directly, then `pm2 restart ai-companion --update-env`
+- The OCI server is on branch `rethinkOCI` — local master changes must be SCP'd or pushed/merged
 
 ---
 
@@ -131,28 +146,30 @@ extension/
 - [x] Backend running via pm2 at 64.181.214.188:3000
 - [x] `/health`, `/analyze`, `/chat` all working end-to-end with OCI GenAI
 - [x] In-memory session store (Map) — functional for demo
+- [x] Bearer token auth middleware (`API_SECRET` env var, enforced on all routes)
+- [x] CORS locked to specific extension ID (`ALLOWED_EXTENSION_ID` env var)
+- [x] **Fixed**: OCI SDK message role bug — `"CHATBOT"` → `"ASSISTANT"` in `toOciMessages()`
+- [x] **VERIFIED**: multi-turn chat (3+ turns) working end-to-end ✓
 
 ### Done — Extension (Engineer 2)
 - [x] Manifest V3 scaffold
 - [x] Google Docs text extraction via `/export?format=txt` (confirmed working)
 - [x] Keyboard buffer fallback for unsaved docs
 - [x] MutationObserver + keydown/keyup debounce trigger (1800ms)
-- [x] Debug overlay + tooltip UI
-- [x] `background.js` service worker proxying backend calls
+- [x] Debug overlay + tooltip UI (overlay set to `false` for production)
+- [x] `background.js` service worker proxying backend calls + bearer token header
 - [x] Session management via `chrome.storage.local`
 - [x] `activeError` state — tooltip persists until backend confirms fix
 - [x] `lastResult` saved to storage so popup can display status
 - [x] Content.js split into 7 focused files in `extension/content/`
 - [x] Popup built: On/Off toggle, subject pills, status banner, Socratic chat
 - [x] Tailwind CSS wired up with local build (`npm run build:css`)
-- [x] **VERIFIED END-TO-END**: "Babies have an average height of 5 feet." → `hasError: true` ✓
-- [x] **VERIFIED END-TO-END**: "Babies are born after 9 months of pregnancy." → `hasError: false` ✓
+- [x] **VERIFIED END-TO-END**: analyze + multi-turn Socratic chat fully working ✓
 
 ### Next Up — RESUME HERE in new chat
-- [ ] Debug and fix popup (user reported it wasn't working — investigate why)
-- [ ] Verify Socratic chat flow: error detected → open popup → chat confirms fix
 - [ ] Demo scenario prep: math equation mistake + biology essay mistake
 - [ ] Polish: refine notification timing, tooltip styling
+- [ ] Pitch talking points prepared
 
 ---
 
